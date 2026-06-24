@@ -254,13 +254,114 @@ export function CircuitCanvas({
     snappedTerminalId: string | null
   } | null>(null)
 
+  // ── Zoom State ──────────────────────────────────────────────────────
+  const [zoom, setZoom] = useState(1.0)
 
+  // ── Zoom-to-fit utility ──────────────────────────────────────────────
+  const handleZoomToFit = useCallback(() => {
+    const parent = svgRef.current?.parentElement
+    if (!parent) return
+    const r = parent.getBoundingClientRect()
+
+    // Calculate bounding box of placed components
+    let minX = Infinity
+    let maxX = -Infinity
+    let minY = Infinity
+    let maxY = -Infinity
+
+    if (components.length === 0) {
+      // Default bounding region centered in 1400x800 canvas
+      minX = 300
+      maxX = 1100
+      minY = 200
+      maxY = 600
+    } else {
+      components.forEach(comp => {
+        const spec = COMPONENT_SPECS[comp.type]
+        const left = comp.x - spec.width / 2
+        const right = comp.x + spec.width / 2
+        const top = comp.y - spec.height / 2
+        const bottom = comp.y + spec.height / 2
+        if (left < minX) minX = left
+        if (right > maxX) maxX = right
+        if (top < minY) minY = top
+        if (bottom > maxY) maxY = bottom
+      })
+      // Add safe padding around components (e.g. 80px)
+      const padding = 80
+      minX -= padding
+      maxX += padding
+      minY -= padding
+      maxY += padding
+    }
+
+    const contentWidth = maxX - minX
+    const contentHeight = maxY - minY
+
+    // Calculate optimal zoom factor to fit content within parent bounds
+    const zoomX = r.width / contentWidth
+    const zoomY = r.height / contentHeight
+    const newZoom = Math.min(zoomX, zoomY, 1.2) // cap at 1.2 max zoom
+    const finalZoom = Math.max(0.4, Number(newZoom.toFixed(2))) // floor at 0.4
+
+    setZoom(finalZoom)
+
+    // Programmatically scroll the parent container to center content
+    setTimeout(() => {
+      const centerX = (minX + maxX) / 2
+      const centerY = (minY + maxY) / 2
+      parent.scrollLeft = centerX * finalZoom - r.width / 2
+      parent.scrollTop = centerY * finalZoom - r.height / 2
+    }, 50)
+  }, [components])
+
+  // Run zoom-to-fit initially and on resize only on mobile/tablet (<= 768px)
+  useEffect(() => {
+    const isMobile = window.innerWidth <= 768
+    if (isMobile) {
+      handleZoomToFit()
+    } else {
+      setZoom(1.0)
+    }
+    
+    // Give it a tiny delay to ensure client container layout has settled
+    const timer = setTimeout(() => {
+      if (window.innerWidth <= 768) {
+        handleZoomToFit()
+      }
+    }, 100)
+
+    const handleResize = () => {
+      if (window.innerWidth <= 768) {
+        handleZoomToFit()
+      }
+    }
+
+    window.addEventListener('resize', handleResize)
+    return () => {
+      clearTimeout(timer)
+      window.removeEventListener('resize', handleResize)
+    }
+  }, [handleZoomToFit])
 
   // ── SVG coordinate conversion ─────────────────────────────────────────
   const clientToSVG = useCallback((cx: number, cy: number) => {
-    const r = svgRef.current?.getBoundingClientRect()
-    if (!r) return { x: 0, y: 0 }
-    return { x: cx - r.left, y: cy - r.top }
+    if (!svgRef.current) return { x: 0, y: 0 }
+    const pt = svgRef.current.createSVGPoint()
+    pt.x = cx
+    pt.y = cy
+    const ctm = svgRef.current.getScreenCTM()
+    if (ctm) {
+      const svgP = pt.matrixTransform(ctm.inverse())
+      return { x: svgP.x, y: svgP.y }
+    }
+    // Fallback if CTM is not ready
+    const r = svgRef.current.getBoundingClientRect()
+    const currentZoom = r.width / CANVAS_WIDTH
+    return {
+      x: (cx - r.left) / currentZoom,
+      y: (cy - r.top) / currentZoom
+    }
   }, [])
 
   // ── Terminal lookup helpers ───────────────────────────────────────────
@@ -290,14 +391,70 @@ export function CircuitCanvas({
     return closest
   }, [components])
 
-  // ── Window-level mouse events (attached during drag/wire draw) ───────
-  // This is the KEY fix: attaching to window means we NEVER lose the drag
-  // even when the cursor moves fast outside the SVG element.
+  // ── Component Drag Mouse / Touch Handlers ───────────────────────────
+  const handleCompMouseDown = useCallback((e: React.MouseEvent, comp: PlacedComponent) => {
+    if (e.button !== 0) return
+    if (wireRef.current.active) return
+    e.stopPropagation()
+    e.preventDefault()
+    const pos = clientToSVG(e.clientX, e.clientY)
+    dragRef.current = { id: comp.id, offX: pos.x - comp.x, offY: pos.y - comp.y }
+    setDraggingId(comp.id)
+  }, [clientToSVG])
+
+  const handleCompTouchStart = useCallback((e: React.TouchEvent, comp: PlacedComponent) => {
+    if (wireRef.current.active) return
+    e.stopPropagation()
+    const touch = e.touches[0]
+    const pos = clientToSVG(touch.clientX, touch.clientY)
+    dragRef.current = { id: comp.id, offX: pos.x - comp.x, offY: pos.y - comp.y }
+    setDraggingId(comp.id)
+  }, [clientToSVG])
+
+  // ── Terminal Mouse / Touch Handlers ───────────────────────────────────
+  const handleTerminalMouseDown = useCallback((
+    e: React.MouseEvent,
+    terminal: Terminal,
+    comp: PlacedComponent,
+  ) => {
+    if (e.button !== 0) return
+    e.stopPropagation()
+    e.preventDefault()
+    const abs = getTerminalAbsPos(comp, terminal)
+    wireRef.current = {
+      active: true,
+      fromTerminalId: terminal.id,
+      fromCompId: comp.id,
+      fromPos: abs,
+      currentPos: abs,
+    }
+    setWirePreview({ fromPos: abs, currentPos: abs, snappedTerminalId: null })
+  }, [])
+
+  const handleTerminalTouchStart = useCallback((
+    e: React.TouchEvent,
+    terminal: Terminal,
+    comp: PlacedComponent,
+  ) => {
+    e.stopPropagation()
+    const touch = e.touches[0]
+    const abs = getTerminalAbsPos(comp, terminal)
+    wireRef.current = {
+      active: true,
+      fromTerminalId: terminal.id,
+      fromCompId: comp.id,
+      fromPos: abs,
+      currentPos: abs,
+    }
+    setWirePreview({ fromPos: abs, currentPos: abs, snappedTerminalId: null })
+  }, [])
+
+  // ── Window-level events (mouse & touch) ──────────────────────────────
   useEffect(() => {
     const onMouseMove = (e: MouseEvent) => {
       const pos = clientToSVG(e.clientX, e.clientY)
 
-      // Component drag
+      // 1. Component drag
       if (dragRef.current) {
         const nx = pos.x - dragRef.current.offX
         const ny = pos.y - dragRef.current.offY
@@ -305,7 +462,7 @@ export function CircuitCanvas({
         return
       }
 
-      // Wire drawing
+      // 2. Wire drawing
       if (wireRef.current.active && wireRef.current.fromPos) {
         const nearby = findNearbyTerminal(pos, wireRef.current.fromCompId)
         wireRef.current.currentPos = pos
@@ -315,6 +472,7 @@ export function CircuitCanvas({
           currentPos: pos,
           snappedTerminalId: nearby ? nearby.id : null,
         })
+        return
       }
     }
 
@@ -337,14 +495,72 @@ export function CircuitCanvas({
         wireRef.current = { active: false, fromTerminalId: null, fromCompId: null, fromPos: null, currentPos: null }
         setWirePreview(null)
         setHoveredTerminal(null)
+        return
+      }
+    }
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (e.touches.length === 0) return
+      const touch = e.touches[0]
+      const pos = clientToSVG(touch.clientX, touch.clientY)
+
+      // 1. Component drag
+      if (dragRef.current) {
+        if (e.cancelable) e.preventDefault()
+        const nx = pos.x - dragRef.current.offX
+        const ny = pos.y - dragRef.current.offY
+        onMoveComponent(dragRef.current.id, nx, ny)
+        return
+      }
+
+      // 2. Wire drawing
+      if (wireRef.current.active && wireRef.current.fromPos) {
+        if (e.cancelable) e.preventDefault()
+        const nearby = findNearbyTerminal(pos, wireRef.current.fromCompId)
+        wireRef.current.currentPos = pos
+        setHoveredTerminal(nearby ? nearby.id : null)
+        setWirePreview({
+          fromPos: wireRef.current.fromPos,
+          currentPos: pos,
+          snappedTerminalId: nearby ? nearby.id : null,
+        })
+        return
+      }
+    }
+
+    const onTouchEnd = (e: TouchEvent) => {
+      // Finish component drag
+      if (dragRef.current) {
+        dragRef.current = null
+        setDraggingId(null)
+        setHoveredComp(null)
+        return
+      }
+
+      // Finish wire draw
+      if (wireRef.current.active && wireRef.current.fromTerminalId) {
+        const touch = e.changedTouches[0]
+        const pos = clientToSVG(touch.clientX, touch.clientY)
+        const nearby = findNearbyTerminal(pos, wireRef.current.fromCompId)
+        if (nearby && nearby.id !== wireRef.current.fromTerminalId) {
+          onAddWire(wireRef.current.fromTerminalId, nearby.id, selectedWireType)
+        }
+        wireRef.current = { active: false, fromTerminalId: null, fromCompId: null, fromPos: null, currentPos: null }
+        setWirePreview(null)
+        setHoveredTerminal(null)
+        return
       }
     }
 
     window.addEventListener('mousemove', onMouseMove)
     window.addEventListener('mouseup', onMouseUp)
+    window.addEventListener('touchmove', onTouchMove, { passive: false })
+    window.addEventListener('touchend', onTouchEnd)
     return () => {
       window.removeEventListener('mousemove', onMouseMove)
       window.removeEventListener('mouseup', onMouseUp)
+      window.removeEventListener('touchmove', onTouchMove)
+      window.removeEventListener('touchend', onTouchEnd)
     }
   }, [clientToSVG, onMoveComponent, onAddWire, findNearbyTerminal, selectedWireType])
 
@@ -357,40 +573,13 @@ export function CircuitCanvas({
     onDropComponent(type, pos.x, pos.y)
   }, [clientToSVG, onDropComponent])
 
-  // ── Component body mouse down → start drag ───────────────────────────
-  const handleCompMouseDown = useCallback((e: React.MouseEvent, comp: PlacedComponent) => {
-    // Only handle left mouse button
-    if (e.button !== 0) return
-    // Do NOT drag if a wire is currently being drawn
-    if (wireRef.current.active) return
-    e.stopPropagation()
+  const handleWheel = useCallback((e: React.WheelEvent<SVGSVGElement>) => {
     e.preventDefault()
-    const pos = clientToSVG(e.clientX, e.clientY)
-    dragRef.current = { id: comp.id, offX: pos.x - comp.x, offY: pos.y - comp.y }
-    setDraggingId(comp.id)
-  }, [clientToSVG])
-
-  // ── Terminal mouse down → start wire draw ────────────────────────────
-  const handleTerminalMouseDown = useCallback((
-    e: React.MouseEvent,
-    terminal: Terminal,
-    comp: PlacedComponent,
-  ) => {
-    if (e.button !== 0) return
-    e.stopPropagation()
-    e.preventDefault()
-    const abs = getTerminalAbsPos(comp, terminal)
-    wireRef.current = {
-      active: true,
-      fromTerminalId: terminal.id,
-      fromCompId: comp.id,
-      fromPos: abs,
-      currentPos: abs,
-    }
-    setWirePreview({ fromPos: abs, currentPos: abs, snappedTerminalId: null })
-  }, [])
-
-
+    const zoomFactor = 1.05
+    const nextZoom = e.deltaY < 0 ? zoom * zoomFactor : zoom / zoomFactor
+    const cappedZoom = Math.min(2.0, Math.max(0.4, nextZoom))
+    setZoom(Number(cappedZoom.toFixed(2)))
+  }, [zoom])
 
   const circuitReady =
     components.some(c => c.type === 'battery') &&
@@ -406,29 +595,36 @@ export function CircuitCanvas({
       {showInstructions && (
         <div className="canvas-instruction" aria-live="polite">
           <span style={{ color: 'var(--brand-green)' }}>⚡</span>
-          Drag components from the left panel onto the canvas
+          Drag or tap components from the left panel to begin
         </div>
       )}
       {!showInstructions && !isComplete && (
         <div className="canvas-instruction" aria-live="polite">
           <span>🔗</span>
-          Click a terminal dot, drag to another to draw a wire
+          Drag terminals to draw wires. Drag background to pan.
         </div>
       )}
 
+      {/* ── Zoom Controls ── */}
+      <div className="canvas-zoom-controls" aria-label="Zoom controls">
+        <button className="zoom-btn" onClick={() => setZoom(z => Math.max(0.4, Number((z - 0.1).toFixed(2))))} aria-label="Zoom out">−</button>
+        <span className="zoom-level">{Math.round(zoom * 100)}%</span>
+        <button className="zoom-btn" onClick={() => setZoom(z => Math.min(2.0, Number((z + 0.1).toFixed(2))))} aria-label="Zoom in">+</button>
+        <button className="zoom-btn zoom-fit-btn" onClick={handleZoomToFit} aria-label="Zoom to fit">Fit</button>
+      </div>
 
       {/* ── SVG Canvas ── */}
       <svg
         ref={svgRef}
         className="circuit-canvas"
-        width={CANVAS_WIDTH}
-        height={CANVAS_HEIGHT}
+        width={CANVAS_WIDTH * zoom}
+        height={CANVAS_HEIGHT * zoom}
         viewBox={`0 0 ${CANVAS_WIDTH} ${CANVAS_HEIGHT}`}
         style={{ cursor: draggingId ? 'grabbing' : isDrawingWire ? 'crosshair' : 'default' }}
         onDragOver={e => e.preventDefault()}
         onDrop={handleDrop}
-        // Prevent browser's default text-selection drag
         onMouseDown={e => e.preventDefault()}
+        onWheel={handleWheel}
         aria-label="Circuit board canvas"
         role="application"
       >
@@ -441,276 +637,286 @@ export function CircuitCanvas({
             <feGaussianBlur stdDeviation="3" result="blur" />
             <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
           </filter>
+          <pattern id="canvas-grid" width="28" height="28" patternUnits="userSpaceOnUse">
+            <circle cx="14" cy="14" r="1.5" fill="var(--bg-canvas-dot)" />
+          </pattern>
         </defs>
 
-        {/* ── Wires ── */}
-        {wires.map(wire => {
-          // Determine path direction (from positive battery terminal to negative battery terminal)
-          // so particle flow direction always follows current flow.
-          let swap = false
-          if (terminalPath) {
-            const idxFrom = terminalPath.indexOf(wire.fromTerminalId)
-            const idxTo = terminalPath.indexOf(wire.toTerminalId)
-            if (idxFrom !== -1 && idxTo !== -1) {
-              swap = idxFrom > idxTo
+        {/* Board content group (native coordinates 0 to 1400 / 0 to 800) */}
+        <g>
+          {/* Background grid listener */}
+          <rect
+            className="canvas-background"
+            x="0"
+            y="0"
+            width={CANVAS_WIDTH}
+            height={CANVAS_HEIGHT}
+            fill="url(#canvas-grid)"
+            style={{ pointerEvents: 'all' }}
+          />
+
+          {/* ── Wires ── */}
+          {wires.map(wire => {
+            // Determine path direction (from positive battery terminal to negative battery terminal)
+            // so particle flow direction always follows current flow.
+            let swap = false
+            if (terminalPath) {
+              const idxFrom = terminalPath.indexOf(wire.fromTerminalId)
+              const idxTo = terminalPath.indexOf(wire.toTerminalId)
+              if (idxFrom !== -1 && idxTo !== -1) {
+                swap = idxFrom > idxTo
+              } else {
+                swap = shouldSwapEndpoints(wire.fromTerminalId, wire.toTerminalId)
+              }
             } else {
               swap = shouldSwapEndpoints(wire.fromTerminalId, wire.toTerminalId)
             }
-          } else {
-            swap = shouldSwapEndpoints(wire.fromTerminalId, wire.toTerminalId)
-          }
-          const actualFromId = swap ? wire.toTerminalId : wire.fromTerminalId
-          const actualToId = swap ? wire.fromTerminalId : wire.toTerminalId
+            const actualFromId = swap ? wire.toTerminalId : wire.fromTerminalId
+            const actualToId = swap ? wire.fromTerminalId : wire.toTerminalId
 
-          const from = terminalPos(actualFromId)
-          const to   = terminalPos(actualToId)
-          if (!from || !to) return null
-          const color = getWireColor(wire.wireType)
-          const glowColor = getWireGlowColor(wire.wireType)
-          const path = buildPath(from, to, wire.wireType, actualFromId, actualToId)
-          const active = isComplete
-          const isHov = hoveredWire === wire.id
+            const from = terminalPos(actualFromId)
+            const to   = terminalPos(actualToId)
+            if (!from || !to) return null
+            const color = getWireColor(wire.wireType)
+            const glowColor = getWireGlowColor(wire.wireType)
+            const path = buildPath(from, to, wire.wireType, actualFromId, actualToId)
+            const active = isComplete
+            const isHov = hoveredWire === wire.id
 
-          return (
-            <g key={wire.id} style={{ cursor: 'pointer' }}>
-              {/* Invisible fat hit area */}
-              <path d={path} stroke="transparent" strokeWidth="18" fill="none"
-                onDoubleClick={() => {
-                  if (onRemoveWire) onRemoveWire(wire.id)
-                  setTooltip(null)
-                }}
-                onMouseEnter={e => {
-                  setHoveredWire(wire.id)
-                  const lines = [
-                    { key: 'Wire', val: wire.wireType === 'live' ? 'Live (Brown)' : 'Neutral (Blue)' }
-                  ]
-                  if (isComplete) {
-                    lines.push({ key: 'Voltage', val: `${voltage} V` })
-                    lines.push({ key: 'Current', val: `${current.toFixed(3)} A` })
-                  }
-                  lines.push({ key: 'Tip', val: 'Double-click to delete' })
-                  setTooltip({
-                    x: e.clientX, y: e.clientY,
-                    lines
-                  })
-                }}
-                onMouseLeave={() => { setHoveredWire(null); setTooltip(null) }}
-              />
-              {/* Glow halo */}
-              {active && (
-                <path d={path} stroke={glowColor} strokeWidth="7" fill="none"
-                  opacity={0.28} strokeLinecap="round" strokeLinejoin="round"
-                  filter={`url(#wire-glow-${wire.wireType === 'live' ? 'live' : 'neutral'})`}
+            return (
+              <g key={wire.id} style={{ cursor: 'pointer' }}>
+                {/* Invisible fat hit area */}
+                <path d={path} stroke="transparent" strokeWidth="18" fill="none"
+                  onDoubleClick={() => {
+                    if (onRemoveWire) onRemoveWire(wire.id)
+                    setTooltip(null)
+                  }}
+                  onMouseEnter={e => {
+                    setHoveredWire(wire.id)
+                    const lines = [
+                      { key: 'Wire', val: wire.wireType === 'live' ? 'Live (Brown)' : 'Neutral (Blue)' }
+                    ]
+                    if (isComplete) {
+                      lines.push({ key: 'Voltage', val: `${voltage} V` })
+                      lines.push({ key: 'Current', val: `${current.toFixed(3)} A` })
+                    }
+                    lines.push({ key: 'Tip', val: 'Double-click to delete' })
+                    setTooltip({
+                      x: e.clientX, y: e.clientY,
+                      lines
+                    })
+                  }}
+                  onMouseLeave={() => { setHoveredWire(null); setTooltip(null) }}
                 />
-              )}
-              {/* Main wire */}
-              <path d={path} stroke={color}
-                strokeWidth={isHov ? 4.5 : active ? 4 : 3}
-                fill="none" strokeLinecap="round" strokeLinejoin="round"
-                style={{ transition: 'stroke-width 0.12s ease', pointerEvents: 'none' }}
-              />
-              {/* Particles */}
-              {showParticles && active && (
-                <path d={path} stroke="rgba(255,255,255,0.8)" strokeWidth="2"
-                  fill="none" strokeLinecap="round" strokeLinejoin="round" className="particle-wire"
-                  style={{ pointerEvents: 'none' }}
-                />
-              )}
-            </g>
-          )
-        })}
-
-        {/* ── Live wire preview ── */}
-        {wirePreview && wirePreview.fromPos && (() => {
-          const snapPos = wirePreview.snappedTerminalId
-            ? terminalPos(wirePreview.snappedTerminalId)
-            : null
-          const toPos = snapPos || wirePreview.currentPos
-          const color = getWireColor(selectedWireType)
-          const path  = buildPath(wirePreview.fromPos, toPos, selectedWireType, wireRef.current.fromTerminalId, wirePreview.snappedTerminalId)
-          return (
-            <g style={{ pointerEvents: 'none' }}>
-              <path d={path} stroke={color} strokeWidth="6"
-                fill="none" opacity={0.1} strokeLinecap="round" strokeLinejoin="round" />
-              <path d={path} stroke={color} strokeWidth="2.5"
-                fill="none" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="8 6" opacity={0.9} />
-              {snapPos && (
-                <circle cx={snapPos.x} cy={snapPos.y} r={14}
-                  fill="rgba(99,102,241,0.12)"
-                  stroke="rgba(99,102,241,0.55)"
-                  strokeWidth="2" strokeDasharray="5 3"
-                />
-              )}
-            </g>
-          )
-        })()}
-
-        {/* ── Components ── */}
-        {components.map(comp => {
-          const spec = COMPONENT_SPECS[comp.type]
-          const isDragging = draggingId === comp.id
-          const isHovered  = hoveredComp === comp.id && !draggingId && !isDrawingWire
-
-          return (
-            <g
-              key={comp.id}
-              // SVG transform for position ONLY — no CSS transform (avoid double-transform bug)
-              transform={`translate(${comp.x}, ${comp.y})`}
-              style={{
-                cursor: isDragging ? 'grabbing' : 'grab',
-                // Visual lift effect via filter only (no transform — that's handled by SVG attribute)
-                filter: isDragging
-                  ? 'drop-shadow(0 10px 24px rgba(0,0,0,0.28))'
-                  : isHovered
-                  ? 'drop-shadow(0 4px 10px rgba(99,102,241,0.25))'
-                  : 'drop-shadow(0 2px 5px rgba(0,0,0,0.08))',
-                transition: isDragging ? 'none' : 'filter 0.2s ease',
-              }}
-              onMouseDown={e => handleCompMouseDown(e, comp)}
-              onMouseEnter={() => { if (!draggingId && !isDrawingWire) setHoveredComp(comp.id) }}
-              onMouseLeave={() => setHoveredComp(null)}
-            >
-              {/* Ground shadow */}
-              <ellipse
-                cx={2} cy={spec.height / 2 + 4}
-                rx={spec.width / 2 - 6} ry={5}
-                fill="rgba(0,0,0,0.1)"
-                style={{ filter: 'blur(3px)', pointerEvents: 'none' }}
-              />
-
-              {/* Hover ring — shown when hoverable */}
-              {isHovered && (
-                <rect
-                  x={-spec.width / 2 - 10} y={-spec.height / 2 - 10}
-                  width={spec.width + 20} height={spec.height + 20}
-                  rx={14} fill="none"
-                  stroke="rgba(99,102,241,0.4)"
-                  strokeWidth="1.5" strokeDasharray="6 4"
-                  style={{ pointerEvents: 'none' }}
-                />
-              )}
-
-              {/* Component SVG body (scaled visually to 75% to match scaled specs) */}
-              <g transform="scale(0.75)" style={{ pointerEvents: 'auto' }} draggable="false">
-                {comp.type === 'battery' && (
-                  <g transform="translate(-40,-68)">
-                    <BatterySVG voltage={voltage} />
-                  </g>
+                {/* Glow halo */}
+                {active && (
+                  <path d={path} stroke={glowColor} strokeWidth="7" fill="none"
+                    opacity={0.28} strokeLinecap="round" strokeLinejoin="round"
+                    filter={`url(#wire-glow-${wire.wireType === 'live' ? 'live' : 'neutral'})`}
+                  />
                 )}
-                {comp.type === 'bulb' && (
-                  <g transform="translate(-44,-62)">
-                    <BulbSVG brightness={brightness} />
-                  </g>
-                )}
-                {comp.type === 'resistor' && (
-                  <g transform="translate(-68,-22)">
-                    <ResistorSVG resistance={resistance} />
-                  </g>
+                {/* Main wire */}
+                <path d={path} stroke={color}
+                  strokeWidth={isHov ? 4.5 : active ? 4 : 3}
+                  fill="none" strokeLinecap="round" strokeLinejoin="round"
+                  style={{ transition: 'stroke-width 0.12s ease', pointerEvents: 'none' }}
+                />
+                {/* Particles */}
+                {showParticles && active && (
+                  <path d={path} stroke="rgba(255,255,255,0.8)" strokeWidth="2"
+                    fill="none" strokeLinecap="round" strokeLinejoin="round" className="particle-wire"
+                    style={{ pointerEvents: 'none' }}
+                  />
                 )}
               </g>
+            )
+          })}
 
-              {/* Terminals — pointer events ON so wire drawing works */}
-              {comp.terminals.map(terminal => {
-                const connected = isTerminalConnected(terminal.id)
-                const isHovT    = hoveredTerminal === terminal.id
-                const isFrom    = wireRef.current.fromTerminalId === terminal.id
+          {/* ── Live wire preview ── */}
+          {wirePreview && wirePreview.fromPos && (() => {
+            const snapPos = wirePreview.snappedTerminalId
+              ? terminalPos(wirePreview.snappedTerminalId)
+              : null
+            const toPos = snapPos || wirePreview.currentPos
+            const color = getWireColor(selectedWireType)
+            const path  = buildPath(wirePreview.fromPos, toPos, selectedWireType, wireRef.current.fromTerminalId, wirePreview.snappedTerminalId)
+            return (
+              <g style={{ pointerEvents: 'none' }}>
+                <path d={path} stroke={color} strokeWidth="6"
+                  fill="none" opacity={0.1} strokeLinecap="round" strokeLinejoin="round" />
+                <path d={path} stroke={color} strokeWidth="2.5"
+                  fill="none" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="8 6" opacity={0.9} />
+                {snapPos && (
+                  <circle cx={snapPos.x} cy={snapPos.y} r={14}
+                    fill="rgba(99,102,241,0.12)"
+                    stroke="rgba(99,102,241,0.55)"
+                    strokeWidth="2" strokeDasharray="5 3"
+                  />
+                )}
+              </g>
+            )
+          })()}
 
-                let fill = '#94a3b8'
-                if (connected) fill = '#22c55e'
-                if (isHovT)    fill = '#818cf8'
-                if (isFrom)    fill = '#f59e0b'
+          {/* ── Components ── */}
+          {components.map(comp => {
+            const spec = COMPONENT_SPECS[comp.type]
+            const isDragging = draggingId === comp.id
+            const isHovered  = hoveredComp === comp.id && !draggingId && !isDrawingWire
 
-                return (
-                  <g key={terminal.id}>
-                    {/* Snap zone (shown while drawing wire) */}
-                    {isDrawingWire && !isFrom && (
-                      <circle cx={terminal.dx} cy={terminal.dy} r={SNAP_RADIUS}
-                        fill={isHovT ? 'rgba(99,102,241,0.1)' : 'transparent'}
-                        stroke={isHovT ? 'rgba(99,102,241,0.45)' : 'rgba(148,163,184,0.2)'}
-                        strokeWidth="1.5" strokeDasharray="4 3"
-                        style={{ cursor: 'crosshair' }}
+            return (
+              <g
+                key={comp.id}
+                transform={`translate(${comp.x}, ${comp.y})`}
+                style={{
+                  cursor: isDragging ? 'grabbing' : 'grab',
+                  filter: isDragging
+                    ? 'drop-shadow(0 10px 24px rgba(0,0,0,0.28))'
+                    : isHovered
+                    ? 'drop-shadow(0 4px 10px rgba(99,102,241,0.25))'
+                    : 'drop-shadow(0 2px 5px rgba(0,0,0,0.08))',
+                  transition: isDragging ? 'none' : 'filter 0.2s ease',
+                }}
+                onMouseDown={e => handleCompMouseDown(e, comp)}
+                onTouchStart={e => handleCompTouchStart(e, comp)}
+                onMouseEnter={() => { if (!draggingId && !isDrawingWire) setHoveredComp(comp.id) }}
+                onMouseLeave={() => setHoveredComp(null)}
+              >
+                {/* Ground shadow */}
+                <ellipse
+                  cx={2} cy={spec.height / 2 + 4}
+                  rx={spec.width / 2 - 6} ry={5}
+                  fill="rgba(0,0,0,0.1)"
+                  style={{ filter: 'blur(3px)', pointerEvents: 'none' }}
+                />
+
+                {/* Hover ring */}
+                {isHovered && (
+                  <rect
+                    x={-spec.width / 2 - 10} y={-spec.height / 2 - 10}
+                    width={spec.width + 20} height={spec.height + 20}
+                    rx={14} fill="none"
+                    stroke="rgba(99,102,241,0.4)"
+                    strokeWidth="1.5" strokeDasharray="6 4"
+                    style={{ pointerEvents: 'none' }}
+                  />
+                )}
+
+                {/* Component SVG body */}
+                <g transform="scale(1.0)" style={{ pointerEvents: 'auto' }} draggable="false">
+                  {comp.type === 'battery' && (
+                    <g transform="translate(-40,-68)">
+                      <BatterySVG voltage={voltage} />
+                    </g>
+                  )}
+                  {comp.type === 'bulb' && (
+                    <g transform="translate(-44,-62)">
+                      <BulbSVG brightness={brightness} />
+                    </g>
+                  )}
+                  {comp.type === 'resistor' && (
+                    <g transform="translate(-68,-22)">
+                      <ResistorSVG resistance={resistance} />
+                    </g>
+                  )}
+                </g>
+
+                {/* Terminals */}
+                {comp.terminals.map(terminal => {
+                  const connected = isTerminalConnected(terminal.id)
+                  const isHovT    = hoveredTerminal === terminal.id
+                  const isFrom    = wireRef.current.fromTerminalId === terminal.id
+
+                  let fill = '#94a3b8'
+                  if (connected) fill = '#22c55e'
+                  if (isHovT)    fill = '#818cf8'
+                  if (isFrom)    fill = '#f59e0b'
+
+                  return (
+                    <g key={terminal.id}>
+                      {/* Snap zone */}
+                      {isDrawingWire && !isFrom && (
+                        <circle cx={terminal.dx} cy={terminal.dy} r={SNAP_RADIUS}
+                          fill={isHovT ? 'rgba(99,102,241,0.1)' : 'transparent'}
+                          stroke={isHovT ? 'rgba(99,102,241,0.45)' : 'rgba(148,163,184,0.2)'}
+                          strokeWidth="1.5" strokeDasharray="4 3"
+                          style={{ cursor: 'crosshair' }}
+                          onMouseEnter={() => setHoveredTerminal(terminal.id)}
+                          onMouseLeave={() => setHoveredTerminal(null)}
+                        />
+                      )}
+
+                      {/* Terminal dot */}
+                      <circle
+                        cx={terminal.dx} cy={terminal.dy}
+                        r={isHovT || isFrom ? 8 : connected ? 6 : 5.5}
+                        fill={fill}
+                        stroke="white" strokeWidth="2"
+                        style={{
+                          cursor: 'crosshair',
+                          transition: 'r 0.1s ease, fill 0.12s ease',
+                          filter: isFrom
+                            ? 'drop-shadow(0 0 5px rgba(245,158,11,0.9))'
+                            : isHovT
+                            ? 'drop-shadow(0 0 5px rgba(129,140,248,0.8))'
+                            : 'none',
+                        }}
+                        onMouseDown={e => handleTerminalMouseDown(e, terminal, comp)}
+                        onTouchStart={e => handleTerminalTouchStart(e, terminal, comp)}
                         onMouseEnter={() => setHoveredTerminal(terminal.id)}
                         onMouseLeave={() => setHoveredTerminal(null)}
                       />
-                    )}
 
-                    {/* Terminal dot */}
-                    <circle
-                      cx={terminal.dx} cy={terminal.dy}
-                      r={isHovT || isFrom ? 8 : connected ? 6 : 5.5}
-                      fill={fill}
-                      stroke="white" strokeWidth="2"
-                      style={{
-                        cursor: 'crosshair',
-                        transition: 'r 0.1s ease, fill 0.12s ease',
-                        filter: isFrom
-                          ? 'drop-shadow(0 0 5px rgba(245,158,11,0.9))'
-                          : isHovT
-                          ? 'drop-shadow(0 0 5px rgba(129,140,248,0.8))'
-                          : 'none',
-                      }}
-                      onMouseDown={e => handleTerminalMouseDown(e, terminal, comp)}
-                      onMouseEnter={() => setHoveredTerminal(terminal.id)}
-                      onMouseLeave={() => setHoveredTerminal(null)}
-                    />
+                      {/* Terminal label */}
+                      <text
+                        x={terminal.dx}
+                        y={terminal.dy}
+                        dx={terminal.label === 'left' ? -14 : terminal.label === 'right' ? 14 : 0}
+                        dy={terminal.label === 'pos' ? -12 : terminal.label === 'neg' ? 16 : 0}
+                        textAnchor="middle" dominantBaseline="middle"
+                        fontSize="10" fontWeight="700"
+                        fill="var(--text-muted)"
+                        fontFamily="Inter, sans-serif"
+                        style={{ pointerEvents: 'none', userSelect: 'none' }}
+                      >
+                        {terminal.label === 'pos' ? '+'
+                          : terminal.label === 'neg' ? '−'
+                          : terminal.label === 'a' ? 'A'
+                          : terminal.label === 'b' ? 'B'
+                          : terminal.label.toUpperCase()}
+                      </text>
+                    </g>
+                  )
+                })}
 
-                    {/* Terminal label */}
-                    <text
-                      x={terminal.dx}
-                      y={terminal.dy}
-                      dx={terminal.label === 'left' ? -14 : terminal.label === 'right' ? 14 : 0}
-                      dy={terminal.label === 'pos' ? -12 : terminal.label === 'neg' ? 16 : 0}
-                      textAnchor="middle" dominantBaseline="middle"
-                      fontSize="10" fontWeight="700"
-                      fill="var(--text-muted)"
-                      fontFamily="Inter, sans-serif"
-                      style={{ pointerEvents: 'none', userSelect: 'none' }}
-                    >
-                      {terminal.label === 'pos' ? '+'
-                        : terminal.label === 'neg' ? '−'
-                        : terminal.label === 'a' ? 'A'
-                        : terminal.label === 'b' ? 'B'
-                        : terminal.label.toUpperCase()}
-                    </text>
+                {/* Delete button */}
+                {isHovered && onRemoveComponent && (
+                  <g
+                    className="delete-button-group"
+                    transform={`translate(${spec.width / 2}, ${-spec.height / 2})`}
+                    style={{ cursor: 'pointer', pointerEvents: 'all' }}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onRemoveComponent(comp.id)
+                    }}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onTouchStart={(e) => e.stopPropagation()}
+                    onMouseUp={(e) => e.stopPropagation()}
+                  >
+                    <circle cx="0" cy="0" r="24" fill="rgba(0,0,0,0)" style={{ pointerEvents: 'all' }} />
+                    <g transform="translate(-9, -9)" className="delete-icon-svg" style={{ transition: 'all 0.15s ease', transformOrigin: 'center', pointerEvents: 'none' }}>
+                      <path d="M6 5V3A1.5 1.5 0 0 1 7.5 1.5h3A1.5 1.5 0 0 1 12 3v2" fill="none" stroke="#ef4444" strokeWidth="1.8" strokeLinecap="round" />
+                      <line x1="2.5" y1="5" x2="15.5" y2="5" stroke="#ef4444" strokeWidth="1.8" strokeLinecap="round" />
+                      <path d="M4.2 5l1 10.5A1.5 1.5 0 0 0 6.7 17h4.6a1.5 1.5 0 0 0 1.5-1.5l1-10.5" fill="none" stroke="#ef4444" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                      <line x1="7.2" y1="8" x2="7.2" y2="13.5" stroke="#ef4444" strokeWidth="1.5" strokeLinecap="round" />
+                      <line x1="10.8" y1="8" x2="10.8" y2="13.5" stroke="#ef4444" strokeWidth="1.5" strokeLinecap="round" />
+                    </g>
                   </g>
-                )
-              })}
-
-              {/* Delete component button (shows when hovered) */}
-              {isHovered && onRemoveComponent && (
-                <g
-                  className="delete-button-group"
-                  transform={`translate(${spec.width / 2}, ${-spec.height / 2})`}
-                  style={{ cursor: 'pointer', pointerEvents: 'auto' }}
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    onRemoveComponent(comp.id)
-                  }}
-                  onMouseDown={(e) => e.stopPropagation()}
-                  onMouseUp={(e) => e.stopPropagation()}
-                >
-                  {/* Large invisible hit area for easy clickability */}
-                  <circle cx="0" cy="0" r="24" fill="rgba(0,0,0,0)" style={{ pointerEvents: 'all' }} />
-                  
-                  {/* Centered Minimal Trash Can SVG Icon (Larger: 18px x 18px) */}
-                  <g transform="translate(-9, -9)" className="delete-icon-svg" style={{ transition: 'all 0.15s ease', transformOrigin: 'center', pointerEvents: 'none' }}>
-                    <path d="M6 5V3A1.5 1.5 0 0 1 7.5 1.5h3A1.5 1.5 0 0 1 12 3v2" fill="none" stroke="#ef4444" strokeWidth="1.8" strokeLinecap="round" />
-                    <line x1="2.5" y1="5" x2="15.5" y2="5" stroke="#ef4444" strokeWidth="1.8" strokeLinecap="round" />
-                    <path d="M4.2 5l1 10.5A1.5 1.5 0 0 0 6.7 17h4.6a1.5 1.5 0 0 0 1.5-1.5l1-10.5" fill="none" stroke="#ef4444" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-                    <line x1="7.2" y1="8" x2="7.2" y2="13.5" stroke="#ef4444" strokeWidth="1.5" strokeLinecap="round" />
-                    <line x1="10.8" y1="8" x2="10.8" y2="13.5" stroke="#ef4444" strokeWidth="1.5" strokeLinecap="round" />
-                  </g>
-                </g>
-              )}
-            </g>
-          )
-        })}
-
-        {/* ── Celebration overlay ── */}
-        {/* Confetti and large banner replaced with simple, clean toast message */}
+                )}
+              </g>
+            )
+          })}
+        </g>
       </svg>
-
-
 
       {/* ── Tooltip ── */}
       {tooltip && (

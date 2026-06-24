@@ -3,19 +3,23 @@ import { BatteryPreview, BulbPreview, ResistorPreview } from './SVGComponents'
 
 interface SidebarProps {
   onDragStart: (type: ComponentType, e: React.DragEvent) => void
+  onAddComponent?: (type: ComponentType) => void
   selectedWireType: WireType
   onSelectWireType: (type: WireType) => void
   placedComponents: { battery: boolean; bulb: boolean; resistor: boolean }
+  className?: string
 }
 
 export function Sidebar({
   onDragStart,
+  onAddComponent,
   selectedWireType,
   onSelectWireType,
   placedComponents,
+  className = '',
 }: SidebarProps) {
   return (
-    <aside className="sidebar" aria-label="Component palette">
+    <aside className={`sidebar ${className}`} aria-label="Component palette">
       <p className="sidebar-section-title">Components</p>
 
       {/* Battery Card */}
@@ -23,9 +27,10 @@ export function Sidebar({
         className={`component-card ${placedComponents.battery ? 'opacity-50' : ''}`}
         draggable={!placedComponents.battery}
         onDragStart={(e) => !placedComponents.battery && onDragStart('battery', e)}
-        title={placedComponents.battery ? 'Battery already placed' : 'Drag to add battery'}
+        onClick={() => !placedComponents.battery && onAddComponent && onAddComponent('battery')}
+        title={placedComponents.battery ? 'Battery already placed' : 'Drag or tap to add battery'}
         role="button"
-        aria-label="Battery component — drag to canvas"
+        aria-label="Battery component — drag or tap to canvas"
         style={{ opacity: placedComponents.battery ? 0.45 : 1 }}
       >
         <div className="component-card-header">
@@ -72,9 +77,10 @@ export function Sidebar({
         className="component-card"
         draggable={!placedComponents.bulb}
         onDragStart={(e) => !placedComponents.bulb && onDragStart('bulb', e)}
-        title={placedComponents.bulb ? 'Bulb already placed' : 'Drag to add bulb'}
+        onClick={() => !placedComponents.bulb && onAddComponent && onAddComponent('bulb')}
+        title={placedComponents.bulb ? 'Bulb already placed' : 'Drag or tap to add bulb'}
         role="button"
-        aria-label="Bulb component — drag to canvas"
+        aria-label="Bulb component — drag or tap to canvas"
         style={{ opacity: placedComponents.bulb ? 0.45 : 1 }}
       >
         <div className="component-card-header">
@@ -93,9 +99,10 @@ export function Sidebar({
         className="component-card"
         draggable={!placedComponents.resistor}
         onDragStart={(e) => !placedComponents.resistor && onDragStart('resistor', e)}
-        title={placedComponents.resistor ? 'Resistor already placed' : 'Drag to add resistor'}
+        onClick={() => !placedComponents.resistor && onAddComponent && onAddComponent('resistor')}
+        title={placedComponents.resistor ? 'Resistor already placed' : 'Drag or tap to add resistor'}
         role="button"
-        aria-label="Resistor component — drag to canvas"
+        aria-label="Resistor component — drag or tap to canvas"
         style={{ opacity: placedComponents.resistor ? 0.45 : 1 }}
       >
         <div className="component-card-header">
@@ -113,7 +120,7 @@ export function Sidebar({
       <div className="sidebar-dropzone" aria-hidden="true">
         <div className="sidebar-dropzone-icon">✋</div>
         <p className="sidebar-dropzone-text">
-          Drag components here<br />to build your circuit
+          Drag or tap components<br />here to build circuit
         </p>
       </div>
     </aside>

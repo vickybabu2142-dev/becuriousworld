@@ -21,6 +21,8 @@ let componentCounter = 0
 export default function App() {
   const [state, setState] = useState<CircuitState>(initialState)
   const [successDismissed, setSuccessDismissed] = useState(false)
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [controlsOpen, setControlsOpen] = useState(false)
 
   // Reset dismissed state when circuit goes from complete to incomplete
   useEffect(() => {
@@ -28,6 +30,12 @@ export default function App() {
       setSuccessDismissed(false)
     }
   }, [state.isComplete])
+
+  // Close mobile panels when active tab changes
+  useEffect(() => {
+    setSidebarOpen(false)
+    setControlsOpen(false)
+  }, [state.activeTab])
  
   // ── Apply theme to document ──────────────────────────────────
   useEffect(() => {
@@ -70,6 +78,28 @@ export default function App() {
       }))
     },
     [state, recalculate]
+  )
+
+  // ── Tap to add component callback ────────────────────────────
+  const handleAddComponent = useCallback(
+    (type: ComponentType) => {
+      if (state.components.some(c => c.type === type)) return
+      // Position spaced nicely around center (x: 350, 700, 1050; y: 400)
+      let x = 700
+      let y = 400
+      if (type === 'battery') {
+        x = 350
+        y = 400
+      } else if (type === 'bulb') {
+        x = 700
+        y = 400
+      } else if (type === 'resistor') {
+        x = 1050
+        y = 400
+      }
+      handleDropComponent(type, x, y)
+    },
+    [state.components, handleDropComponent]
   )
  
   // ── Move component ───────────────────────────────────────────
@@ -211,9 +241,11 @@ export default function App() {
         {/* Left Sidebar */}
         <Sidebar
           onDragStart={handleSidebarDragStart}
+          onAddComponent={handleAddComponent}
           selectedWireType={state.selectedWireType}
           onSelectWireType={wt => setState(prev => ({ ...prev, selectedWireType: wt }))}
           placedComponents={placedComponents}
+          className={sidebarOpen ? 'mobile-open' : ''}
         />
 
         {/* Center Canvas */}
@@ -247,7 +279,45 @@ export default function App() {
           hasResistorOnCanvas={state.components.some(c => c.type === 'resistor')}
           onVoltageChange={handleVoltageChange}
           onResistanceChange={handleResistanceChange}
+          className={controlsOpen ? 'mobile-open' : ''}
         />
+
+        {/* Backdrop for mobile drawers */}
+        {(sidebarOpen || controlsOpen) && (
+          <div
+            className="mobile-panels-backdrop"
+            onClick={() => {
+              setSidebarOpen(false)
+              setControlsOpen(false)
+            }}
+          />
+        )}
+
+        {/* Floating Mobile Toggles */}
+        <div className="mobile-toggle-bar">
+          <button
+            className={`mobile-toggle-btn ${sidebarOpen ? 'active' : ''}`}
+            onClick={() => {
+              setSidebarOpen(prev => !prev)
+              setControlsOpen(false)
+            }}
+            aria-expanded={sidebarOpen}
+            aria-label="Toggle component palette"
+          >
+            📦 Components
+          </button>
+          <button
+            className={`mobile-toggle-btn ${controlsOpen ? 'active' : ''}`}
+            onClick={() => {
+              setControlsOpen(prev => !prev)
+              setSidebarOpen(false)
+            }}
+            aria-expanded={controlsOpen}
+            aria-label="Toggle controls and readings"
+          >
+            ⚙️ Controls
+          </button>
+        </div>
 
         {/* Workspace Success Sheet */}
         {state.isComplete && !successDismissed && (

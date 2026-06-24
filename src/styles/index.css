@@ -543,10 +543,10 @@ body {
 /* ===== Center Canvas ===== */
 .canvas-wrapper {
   flex: 1;
-  display: flex;
-  flex-direction: column;
   overflow: auto; /* Enable scrollbars when viewport is smaller than canvas */
   position: relative;
+  background-color: var(--bg-canvas);
+  display: flex;
 }
 
 .canvas-instruction {
@@ -577,14 +577,11 @@ body {
 }
 
 .circuit-canvas {
-  width: 1400px;
-  height: 800px;
+  display: block;
+  margin: auto;
   flex-shrink: 0;
   position: relative;
   background-color: var(--bg-canvas);
-  background-image:
-    radial-gradient(circle, var(--bg-canvas-dot) 1px, transparent 1px);
-  background-size: 28px 28px;
   cursor: default;
   overflow: hidden;
   transition: background-color var(--transition-slow);
@@ -1419,6 +1416,120 @@ input[type="range"]:hover::-webkit-slider-thumb {
   transform: translate(-50%, -50%);
 }
 
+/* ===== Mobile Toggle Bar & Panels Backdrop ===== */
+.mobile-toggle-bar {
+  display: none;
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 180;
+  background: rgba(30, 41, 59, 0.8);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-full);
+  padding: 6px;
+  gap: 8px;
+  box-shadow: var(--shadow-lg);
+}
+
+[data-theme="light"] .mobile-toggle-bar {
+  background: rgba(255, 255, 255, 0.85);
+}
+
+.mobile-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: var(--radius-full);
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all var(--transition-base);
+  white-space: nowrap;
+}
+
+.mobile-toggle-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-surface-hover);
+}
+
+.mobile-toggle-btn.active {
+  background: var(--brand-primary);
+  color: white;
+  box-shadow: var(--shadow-sm);
+}
+
+.mobile-panels-backdrop {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(2px);
+  z-index: 140;
+  animation: fadeIn var(--transition-fast) ease;
+}
+
+/* ===== Zoom Controls ===== */
+.canvas-zoom-controls {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  display: flex;
+  align-items: center;
+  background: var(--bg-surface);
+  border: 1.5px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 4px;
+  box-shadow: var(--shadow-md);
+  z-index: 10;
+  transition: background var(--transition-slow), border-color var(--transition-slow);
+}
+
+.zoom-btn {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 16px;
+  transition: background var(--transition-fast);
+}
+
+.zoom-btn:hover {
+  background: var(--bg-surface-hover);
+}
+
+.zoom-level {
+  font-family: var(--font-display);
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-weight: 800;
+  padding: 0 6px;
+  min-width: 44px;
+  text-align: center;
+  user-select: none;
+}
+
+.zoom-fit-btn {
+  font-family: var(--font-display);
+  font-size: 11px !important;
+  font-weight: 800;
+}
+
 /* ===== Responsive ===== */
 @media (max-width: 900px) {
   :root {
@@ -1427,17 +1538,74 @@ input[type="range"]:hover::-webkit-slider-thumb {
   }
 }
 
-@media (max-width: 640px) {
-  .controls-panel {
-    display: none;
+@media (max-width: 768px) {
+  :root {
+    --sidebar-width: 240px;
+    --controls-width: 280px;
   }
 
   .sidebar {
-    width: 160px;
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    z-index: 150;
+    transform: translateX(-100%);
+    transition: transform var(--transition-base);
+    box-shadow: var(--shadow-lg);
+  }
+
+  .sidebar.mobile-open {
+    transform: translateX(0);
+  }
+
+  .controls-panel {
+    position: absolute;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    z-index: 150;
+    transform: translateX(100%);
+    transition: transform var(--transition-base);
+    box-shadow: var(--shadow-lg);
+  }
+
+  .controls-panel.mobile-open {
+    transform: translateX(0);
+  }
+
+  .mobile-toggle-bar {
+    display: flex;
   }
 
   .header-logo-text span {
     display: none;
+  }
+
+  /* Make header action buttons smaller or wrap on mobile */
+  .header-actions {
+    gap: 4px;
+  }
+  
+  .btn {
+    padding: 6px 12px;
+    font-size: 12px;
+  }
+
+  /* Make success celebration overlay readable on small mobile screens */
+  .success-sheet {
+    padding: 16px 20px;
+    bottom: 12px;
+    max-height: 90vh;
+    overflow-y: auto;
+  }
+  
+  .success-sheet-title {
+    font-size: 16px;
+  }
+  
+  .success-sheet-content {
+    font-size: 13px;
   }
 }
 

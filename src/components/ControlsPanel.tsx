@@ -10,6 +10,7 @@ interface ControlsPanelProps {
   hasResistorOnCanvas?: boolean
   onVoltageChange: (v: number) => void
   onResistanceChange: (r: number) => void
+  className?: string
 }
 
 export function ControlsPanel({
@@ -24,6 +25,7 @@ export function ControlsPanel({
   hasResistorOnCanvas = false,
   onVoltageChange,
   onResistanceChange,
+  className = '',
 }: ControlsPanelProps) {
   // Compute slider fill percentages
   const voltagePct = ((voltage - 1) / (24 - 1)) * 100
@@ -31,7 +33,7 @@ export function ControlsPanel({
   const brightnessPct = brightness
 
   return (
-    <aside className="controls-panel" aria-label="Circuit controls and readings">
+    <aside className={`controls-panel ${className}`} aria-label="Circuit controls and readings">
       <p className="controls-title">Controls</p>
 
       {/* Voltage Slider */}

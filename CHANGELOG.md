@@ -11,11 +11,21 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Planned
 - Sound effects (wire click, bulb on, celebration jingle)
-- Touch & mobile drag-and-drop support
 - Challenge / mission system (4 guided missions)
 - Bulb burnout state at excessive voltage
 - Learn tab — theory view with interactive explanations
 - Multiple batteries / bulbs / resistors in V2
+
+---
+
+## [0.1.3] — 2026-06-25
+
+### Added
+- **Full Touch & Mobile Support:** Integrated native touch handlers (`onTouchStart`, `onTouchMove`, `onTouchEnd`) on the SVG canvas to support component dragging and wire drawing on tablets and mobile screens.
+- **Canvas Zoom & Pan:** Implemented translation and scale-based zoom and pan on the circuit builder canvas. Panning is done by dragging on the empty canvas grid background, and zooming is done via the scroll wheel or a new floating glassmorphic zoom widget (with Zoom In, Zoom Out, and Fit-to-screen controls).
+- **Responsive Drawers & Toggles:** Redesigned layout for viewports `<= 768px`. The sidebar (components palette) and controls/metrics panel now behave as slide-in drawers. A new floating toggle bar at the bottom lets touch users toggle these drawers over the canvas, with a translucent overlay backdrop to close them on tap.
+- **Tap-to-Add Fallback:** Added click callbacks on the sidebar cards to let mobile users easily tap a component to place it directly on the canvas, bypassing the lack of native drag-and-drop support on touch screens.
+- **CTM-Based Coordinate Mapping:** Upgraded the canvas coordinate projection engine to use `getScreenCTM()` and matrix inversion. This guarantees pixel-perfect interaction targets (components, terminals) under any device resolution, CSS scaling, window resizing, or zoom/pan level.
 
 ---
 
