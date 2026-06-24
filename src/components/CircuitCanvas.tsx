@@ -5,13 +5,16 @@ import {
   WireType,
   Terminal,
   COMPONENT_SPECS,
+  MAX_SAFE_VOLTAGE,
+  BULB_INTERNAL_RESISTANCE,
 } from '../store/circuitStore'
 import { BatterySVG, BulbSVG, ResistorSVG } from './SVGComponents'
 
 interface TooltipData {
   x: number
   y: number
-  lines: { key: string; val: string }[]
+  wireType?: WireType
+  lines: { key: string; val: string; color?: string }[]
 }
 
 interface WireDrawState {
@@ -41,6 +44,10 @@ interface CircuitCanvasProps {
 }
 
 const SNAP_RADIUS = 32
+const CANVAS_WIDTH = 1400
+const CANVAS_HEIGHT = 800
+// Max current when no external resistor: V_max / R_bulb
+const MAX_CURRENT = MAX_SAFE_VOLTAGE / BULB_INTERNAL_RESISTANCE
 
 function getTerminalAbsPos(comp: PlacedComponent, t: Terminal) {
   return { x: comp.x + t.dx, y: comp.y + t.dy }
@@ -183,12 +190,32 @@ export function CircuitCanvas({
 }: CircuitCanvasProps) {
   const svgRef = useRef<SVGSVGElement>(null)
   const [tooltip, setTooltip] = useState<TooltipData | null>(null)
+  const [tooltipVisible, setTooltipVisible] = useState(false)
+  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [hoveredWire, setHoveredWire] = useState<string | null>(null)
   const [hoveredComp, setHoveredComp] = useState<string | null>(null)
   const [hoveredTerminal, setHoveredTerminal] = useState<string | null>(null)
 
-  const CANVAS_WIDTH = 1400
-  const CANVAS_HEIGHT = 800
+  // ── Tooltip helpers ──────────────────────────────────────────────────
+  const showTooltip = useCallback((data: TooltipData) => {
+    if (hideTimerRef.current) clearTimeout(hideTimerRef.current)
+    setTooltip(data)
+    // Use a tiny rAF delay so position is set before opacity transitions in
+    requestAnimationFrame(() => setTooltipVisible(true))
+  }, [])
+
+  const hideTooltip = useCallback((delay = 500) => {
+    if (hideTimerRef.current) clearTimeout(hideTimerRef.current)
+    hideTimerRef.current = setTimeout(() => {
+      setTooltipVisible(false)
+      // Remove from DOM after transition completes
+      hideTimerRef.current = setTimeout(() => setTooltip(null), 220)
+    }, delay)
+  }, [])
+
+  const cancelHide = useCallback(() => {
+    if (hideTimerRef.current) clearTimeout(hideTimerRef.current)
+  }, [])
 
 
   // Calculate path-based terminal order to orient wires correctly along current flow
@@ -457,7 +484,6 @@ export function CircuitCanvas({
   ) => {
     e.stopPropagation()
     setDeleteTarget(null)
-    const touch = e.touches[0]
     const abs = getTerminalAbsPos(comp, terminal)
     wireRef.current = {
       active: true,
@@ -581,6 +607,8 @@ export function CircuitCanvas({
       window.removeEventListener('mouseup', onMouseUp)
       window.removeEventListener('touchmove', onTouchMove)
       window.removeEventListener('touchend', onTouchEnd)
+      // Clear any pending tooltip hide timers
+      if (hideTimerRef.current) clearTimeout(hideTimerRef.current)
     }
   }, [clientToSVG, onMoveComponent, onAddWire, findNearbyTerminal, selectedWireType])
 
@@ -602,10 +630,29 @@ export function CircuitCanvas({
     setZoom(Number(cappedZoom.toFixed(2)))
   }, [zoom])
 
-  const circuitReady =
-    components.some(c => c.type === 'battery') &&
-    components.some(c => c.type === 'bulb') &&
-    wires.length >= 2
+  // Determine resistor warning state
+  const resistorOnCanvas = components.some(c => c.type === 'resistor')
+  const showResistorWarning = isComplete && !hasResistorInLoop
+
+  // ── Dynamic particle speed & size based on current ─────────────────────
+  // Max safe current = 24V / 10Ω = 2.4A (bulb-only, no external resistor)
+  // We map current [0A → 2.4A] to:
+  //   animation duration [2.5s (slow) → 0.25s (fast)]
+  //   stroke-dash size   [4px → 9px]  (bigger particles at higher current)
+  const clampedCurrent = Math.min(current, MAX_CURRENT)
+  const currentFraction = isComplete ? clampedCurrent / MAX_CURRENT : 0
+  // Ease the speed with a slight curve so even small changes feel noticeable
+  const particleDuration = isComplete
+    ? Math.max(0.25, 2.5 - currentFraction * 2.25)  // 2.5s → 0.25s
+    : 1.2
+  const particleSpeed = `${particleDuration.toFixed(2)}s`
+  // Particle dot size: 4px at zero, up to 8px at max current
+  const particleDotSize = (4 + currentFraction * 4).toFixed(1)
+  // Gap between particles shrinks as current rises (more densely-packed at high I)
+  const particleGap = Math.max(10, Math.round(32 - currentFraction * 22))
+  const particleDash = `${particleDotSize} ${particleGap}`
+  // Wire glow intensity scales with current fraction
+  const glowOpacity = isComplete ? (0.15 + currentFraction * 0.3).toFixed(2) : '0'
 
   const showInstructions = components.length === 0
   const isDrawingWire = wirePreview !== null
@@ -625,6 +672,15 @@ export function CircuitCanvas({
           Drag terminals to draw wires. Drag background to pan.
         </div>
       )}
+      {/* ── Resistor Warning Banner ── */}
+      {showResistorWarning && (
+        <div className="canvas-instruction warning-banner" role="alert" aria-live="assertive">
+          <span>⚠️</span>
+          {resistorOnCanvas
+            ? 'Danger: Resistor bypassed! Wire it in-series to protect the bulb.'
+            : 'Overload! Add a resistor in series to protect the bulb from burning out.'}
+        </div>
+      )}
 
       {/* ── Zoom Controls ── */}
       <div className="canvas-zoom-controls" aria-label="Zoom controls">
@@ -635,6 +691,7 @@ export function CircuitCanvas({
         <button className="zoom-btn" onClick={() => setZoom(z => Math.min(2.0, Number((z + 0.1).toFixed(2))))} aria-label="Zoom in">+</button>
       </div>
 
+
       {/* ── SVG Canvas ── */}
       <svg
         ref={svgRef}
@@ -642,7 +699,7 @@ export function CircuitCanvas({
         width={CANVAS_WIDTH * zoom}
         height={CANVAS_HEIGHT * zoom}
         viewBox={`0 0 ${CANVAS_WIDTH} ${CANVAS_HEIGHT}`}
-        style={{ cursor: draggingId ? 'grabbing' : isDrawingWire ? 'crosshair' : 'default' }}
+        style={{ cursor: draggingId ? 'grabbing' : isDrawingWire ? 'crosshair' : 'default', touchAction: 'none' }}
         onDragOver={e => e.preventDefault()}
         onDrop={handleDrop}
         onMouseDown={e => e.preventDefault()}
@@ -731,25 +788,23 @@ export function CircuitCanvas({
                   }}
                   onMouseEnter={e => {
                     setHoveredWire(wire.id)
-                    const lines = [
-                      { key: 'Wire', val: wire.wireType === 'live' ? 'Live (Brown)' : 'Neutral (Blue)' }
-                    ]
+                    const lines: { key: string; val: string; color?: string }[] = []
                     if (isComplete) {
-                      lines.push({ key: 'Voltage', val: `${voltage} V` })
-                      lines.push({ key: 'Current', val: `${current.toFixed(3)} A` })
+                      lines.push({ key: 'Voltage', val: `${voltage} V`, color: '#f59e0b' })
+                      lines.push({ key: 'Current', val: `${current.toFixed(3)} A`, color: '#22d3ee' })
                     }
-                    lines.push({ key: 'Tip', val: 'Double-click/tap to delete' })
-                    setTooltip({
-                      x: e.clientX, y: e.clientY,
-                      lines
-                    })
+                    lines.push({ key: 'Tip', val: 'Double-click to delete' })
+                    showTooltip({ x: e.clientX, y: e.clientY, wireType: wire.wireType, lines })
                   }}
-                  onMouseLeave={() => { setHoveredWire(null); setTooltip(null) }}
+                  onMouseLeave={() => {
+                    setHoveredWire(null)
+                    hideTooltip(500)
+                  }}
                 />
-                {/* Glow halo */}
+                {/* Glow halo — intensity scales with current */}
                 {active && (
-                  <path d={path} stroke={glowColor} strokeWidth="7" fill="none"
-                    opacity={0.28} strokeLinecap="round" strokeLinejoin="round"
+                  <path d={path} stroke={glowColor} strokeWidth="8" fill="none"
+                    opacity={glowOpacity} strokeLinecap="round" strokeLinejoin="round"
                     filter={`url(#wire-glow-${wire.wireType === 'live' ? 'live' : 'neutral'})`}
                   />
                 )}
@@ -759,11 +814,15 @@ export function CircuitCanvas({
                   fill="none" strokeLinecap="round" strokeLinejoin="round"
                   style={{ transition: 'stroke-width 0.12s ease', pointerEvents: 'none' }}
                 />
-                {/* Particles */}
+                {/* Particles — speed and size driven by current value */}
                 {showParticles && active && (
-                  <path d={path} stroke="rgba(255,255,255,0.8)" strokeWidth="2"
+                  <path d={path} stroke="rgba(255,255,255,0.85)" strokeWidth={1.5 + currentFraction * 1.5}
                     fill="none" strokeLinecap="round" strokeLinejoin="round" className="particle-wire"
-                    style={{ pointerEvents: 'none' }}
+                    style={{
+                      pointerEvents: 'none',
+                      '--particle-speed': particleSpeed,
+                      '--particle-dash': particleDash,
+                    } as React.CSSProperties}
                   />
                 )}
               </g>
@@ -862,6 +921,42 @@ export function CircuitCanvas({
                     </g>
                   )}
                 </g>
+
+                {/* Bypassed/Missing Resistor Warning Glow Ring */}
+                {comp.type === 'resistor' && showResistorWarning && (
+                  <g style={{ pointerEvents: 'none' }}>
+                    {/* Outer glow ring */}
+                    <rect
+                      x={-spec.width / 2 - 14} y={-spec.height / 2 - 14}
+                      width={spec.width + 28} height={spec.height + 28}
+                      rx={16} fill="none"
+                      stroke="#f59e0b"
+                      strokeWidth="2.5"
+                      strokeDasharray="8 5"
+                      opacity={0.9}
+                      className="resistor-bypass-glow"
+                    />
+                    {/* Second inner glow layer for depth */}
+                    <rect
+                      x={-spec.width / 2 - 8} y={-spec.height / 2 - 8}
+                      width={spec.width + 16} height={spec.height + 16}
+                      rx={12} fill="rgba(245,158,11,0.07)"
+                      stroke="rgba(245,158,11,0.4)"
+                      strokeWidth="1.5"
+                    />
+                    {/* Warning label */}
+                    <text
+                      x={0} y={-spec.height / 2 - 22}
+                      textAnchor="middle" dominantBaseline="middle"
+                      fontSize="11" fontWeight="800"
+                      fill="#f59e0b"
+                      fontFamily="Inter, sans-serif"
+                      className="resistor-bypass-label"
+                    >
+                      ⚠ BYPASSED
+                    </text>
+                  </g>
+                )}
 
                 {/* Terminals */}
                 {comp.terminals.map(terminal => {
@@ -964,19 +1059,54 @@ export function CircuitCanvas({
       </svg>
 
       {/* ── Tooltip ── */}
-      {tooltip && (
-        <div className="tooltip"
-          style={{ left: tooltip.x + 14, top: tooltip.y - 8 }}
-          role="tooltip" aria-hidden="true"
-        >
-          {tooltip.lines.map(l => (
-            <div key={l.key} className="tooltip-line">
-              <span className="tooltip-key">{l.key}</span>
-              <span className="tooltip-val">{l.val}</span>
+      {tooltip && (() => {
+        // Edge-aware positioning: flip left if near right edge, flip up if near bottom
+        const TOOLTIP_W = 220
+        const TOOLTIP_H = 160
+        const vw = window.innerWidth
+        const vh = window.innerHeight
+        const left = tooltip.x + 16 + TOOLTIP_W > vw ? tooltip.x - TOOLTIP_W - 12 : tooltip.x + 16
+        const top  = tooltip.y + TOOLTIP_H > vh ? tooltip.y - TOOLTIP_H - 8  : tooltip.y - 12
+
+        const isLive = tooltip.wireType === 'live'
+        const wireLabel = isLive ? 'Live Wire' : 'Neutral Wire'
+        const dotColor  = isLive ? '#b45309' : '#3b82f6'
+        const dotBg     = isLive ? 'rgba(180,83,9,0.15)' : 'rgba(59,130,246,0.15)'
+
+        return (
+          <div
+            className={`tooltip${tooltipVisible ? ' tooltip-visible' : ''}`}
+            style={{ left, top }}
+            role="tooltip"
+            onMouseEnter={cancelHide}
+            onMouseLeave={() => hideTooltip(300)}
+          >
+            {/* Header — wire type badge */}
+            <div className="tooltip-header" style={{ borderColor: dotColor + '55' }}>
+              <span className="tooltip-wire-dot" style={{ background: dotColor, boxShadow: `0 0 6px ${dotColor}88` }} />
+              <span style={{ color: dotColor }}>{wireLabel}</span>
             </div>
-          ))}
-        </div>
-      )}
+
+            {/* Data rows */}
+            <div className="tooltip-body">
+              {tooltip.lines.map(l => {
+                const isTip = l.key === 'Tip'
+                return (
+                  <div key={l.key} className={`tooltip-row${isTip ? ' tooltip-row-tip' : ''}`}>
+                    <span className="tooltip-row-key">{l.key}</span>
+                    <span
+                      className="tooltip-row-val"
+                      style={l.color ? { color: l.color } : undefined}
+                    >
+                      {l.val}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )
+      })()}
     </div>
   )
 }

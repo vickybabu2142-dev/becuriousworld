@@ -136,7 +136,6 @@ export default function App() {
         fromTerminalId: fromId,
         toTerminalId: toId,
         wireType,
-        points: [],
       }
       const newWires = [...state.wires, newWire]
       const calc = recalculate(state.components, newWires, state.voltage, state.resistance)
@@ -147,7 +146,6 @@ export default function App() {
         ...prev,
         wires: newWires,
         ...calc,
-        showCelebration: justCompleted,
         hasEverCompleted: prev.hasEverCompleted || justCompleted,
       }))
     },
@@ -245,6 +243,8 @@ export default function App() {
           selectedWireType={state.selectedWireType}
           onSelectWireType={wt => setState(prev => ({ ...prev, selectedWireType: wt }))}
           placedComponents={placedComponents}
+          isComplete={state.isComplete}
+          hasResistorInLoop={state.hasResistorInLoop}
           className={sidebarOpen ? 'mobile-open' : ''}
         />
 

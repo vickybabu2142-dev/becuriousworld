@@ -27,7 +27,6 @@ export interface Wire {
   fromTerminalId: string
   toTerminalId: string
   wireType: WireType
-  points: { x: number; y: number }[]  // SVG path points
 }
 
 export interface CircuitState {
@@ -45,7 +44,6 @@ export interface CircuitState {
   isDark: boolean
   activeTab: 'play' | 'learn'
   selectedWireType: WireType
-  showCelebration: boolean
   hasEverCompleted: boolean
 }
 
@@ -163,14 +161,6 @@ export function analyzeCircuit(
 
   return { isComplete: false, hasResistor: false }
 }
-
-export function isCircuitComplete(
-  components: PlacedComponent[],
-  wires: Wire[]
-): boolean {
-  return analyzeCircuit(components, wires).isComplete
-}
-
 // ======================================================
 // Terminal positions (relative to component SVG center)
 // Sync'd perfectly with visual locations in SVGComponents.tsx
@@ -241,6 +231,5 @@ export const initialState: CircuitState = {
   isDark: true,
   activeTab: 'play',
   selectedWireType: 'live',
-  showCelebration: false,
   hasEverCompleted: false,
 }

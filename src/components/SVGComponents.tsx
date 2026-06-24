@@ -3,7 +3,6 @@
 // ======================================================
 interface BatterySVGProps {
   voltage: number
-  isConnected?: boolean
   scale?: number
 }
 
@@ -98,8 +97,7 @@ export function BulbSVG({ brightness, scale = 1 }: BulbSVGProps) {
   const filamentGlowColor = !lit ? 'none' : `hsl(${hue.toFixed(1)}, 100%, 65%)`
 
   // Outer glow size - wider, more prominent bloom
-  const glowR1 = 30 + b * 45
-  const glowR2 = 30 + b * 45
+  const glowR = 30 + b * 45
   const glowOpacity1 = b * 0.55
   const glowOpacity2 = b * 0.85
 
@@ -180,7 +178,7 @@ export function BulbSVG({ brightness, scale = 1 }: BulbSVGProps) {
       {lit && (
         <ellipse
           cx="0" cy="-10"
-          rx={glowR1} ry={glowR2 * 1.5}
+          rx={glowR} ry={glowR * 1.5}
           fill={`url(#${uid}-bloom)`}
           filter={`url(#${uid}-bloom-blur)`}
         />

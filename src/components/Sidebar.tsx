@@ -7,6 +7,8 @@ interface SidebarProps {
   selectedWireType: WireType
   onSelectWireType: (type: WireType) => void
   placedComponents: { battery: boolean; bulb: boolean; resistor: boolean }
+  isComplete?: boolean
+  hasResistorInLoop?: boolean
   className?: string
 }
 
@@ -16,15 +18,19 @@ export function Sidebar({
   selectedWireType,
   onSelectWireType,
   placedComponents,
+  isComplete = false,
+  hasResistorInLoop = true,
   className = '',
 }: SidebarProps) {
+  // Warn when circuit is complete but resistor is not in the loop
+  const resistorWarning = isComplete && !hasResistorInLoop
   return (
     <aside className={`sidebar ${className}`} aria-label="Component palette">
       <p className="sidebar-section-title">Components</p>
 
       {/* Battery Card */}
       <div
-        className={`component-card ${placedComponents.battery ? 'opacity-50' : ''}`}
+        className="component-card"
         draggable={!placedComponents.battery}
         onDragStart={(e) => !placedComponents.battery && onDragStart('battery', e)}
         onClick={() => !placedComponents.battery && onAddComponent && onAddComponent('battery')}
@@ -96,24 +102,44 @@ export function Sidebar({
 
       {/* Resistor Card */}
       <div
-        className="component-card"
+        className={`component-card${resistorWarning ? ' resistor-warning' : ''}`}
         draggable={!placedComponents.resistor}
         onDragStart={(e) => !placedComponents.resistor && onDragStart('resistor', e)}
         onClick={() => !placedComponents.resistor && onAddComponent && onAddComponent('resistor')}
-        title={placedComponents.resistor ? 'Resistor already placed' : 'Drag or tap to add resistor'}
+        title={
+          resistorWarning && !placedComponents.resistor
+            ? '⚠️ Add resistor to protect the bulb!'
+            : resistorWarning && placedComponents.resistor
+            ? '⚠️ Connect resistor in the circuit loop!'
+            : placedComponents.resistor
+            ? 'Resistor already placed'
+            : 'Drag or tap to add resistor'
+        }
         role="button"
         aria-label="Resistor component — drag or tap to canvas"
-        style={{ opacity: placedComponents.resistor ? 0.45 : 1 }}
+        aria-live={resistorWarning ? 'assertive' : undefined}
+        style={{ opacity: placedComponents.resistor && !resistorWarning ? 0.45 : 1 }}
       >
         <div className="component-card-header">
           <span className="component-card-name">Resistor</span>
-          {placedComponents.resistor && (
+          {resistorWarning ? (
+            <span className="resistor-warning-badge" aria-label="Warning: resistor missing from loop">
+              ⚠ {placedComponents.resistor ? 'Bypassed' : 'Missing'}
+            </span>
+          ) : placedComponents.resistor ? (
             <span style={{ fontSize: 10, color: 'var(--brand-green)', fontWeight: 700 }}>✓ Placed</span>
-          )}
+          ) : null}
         </div>
         <div className="component-card-body">
           <ResistorPreview />
         </div>
+        {resistorWarning && (
+          <p className="resistor-warning-tip">
+            {placedComponents.resistor
+              ? 'Wire it into the loop to protect the bulb!'
+              : 'Drag to canvas & wire in-loop!'}
+          </p>
+        )}
       </div>
 
       {/* Drop zone hint */}
