@@ -7,6 +7,7 @@ interface ControlsPanelProps {
   power: number
   isComplete: boolean
   hasResistorInLoop?: boolean
+  hasResistorOnCanvas?: boolean
   onVoltageChange: (v: number) => void
   onResistanceChange: (r: number) => void
 }
@@ -20,6 +21,7 @@ export function ControlsPanel({
   power,
   isComplete,
   hasResistorInLoop = true,
+  hasResistorOnCanvas = false,
   onVoltageChange,
   onResistanceChange,
 }: ControlsPanelProps) {
@@ -111,14 +113,14 @@ export function ControlsPanel({
       {/* Brightness Indicator */}
       <div className="slider-control" id="brightness-control">
         <div className="slider-header">
-          <label className="slider-label" htmlFor="brightness-slider">
+          <div className="slider-label">
             <svg viewBox="0 0 24 24" fill="none" stroke={isComplete ? '#f59e0b' : 'currentColor'} strokeWidth="2" aria-hidden="true">
               <circle cx="12" cy="12" r="5" fill={isComplete ? '#fde68a' : 'none'} />
               <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
             </svg>
             Brightness
             <span style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 500 }}>(Bulb)</span>
-          </label>
+          </div>
           <span
             className="slider-value"
             style={{ color: isComplete ? '#f59e0b' : 'var(--text-muted)' }}
@@ -127,19 +129,9 @@ export function ControlsPanel({
             {brightness}%
           </span>
         </div>
-        <input
-          id="brightness-slider"
-          type="range"
-          className="brightness-slider"
-          min={0}
-          max={100}
-          value={brightness}
-          readOnly
-          style={{ '--pct': `${brightnessPct}%` } as React.CSSProperties}
-          aria-label={`Brightness: ${brightness} percent`}
-          aria-readonly="true"
-          tabIndex={-1}
-        />
+        <div className="brightness-meter-container" role="img" aria-label={`Brightness: ${brightness}%`}>
+          <div className="brightness-meter-fill" style={{ width: `${brightnessPct}%` }} />
+        </div>
         <div className="slider-limits">
           <span>0%</span>
           <span>100%</span>
@@ -190,7 +182,11 @@ export function ControlsPanel({
             ? (!hasResistorInLoop
               ? 'The circuit is complete! However, current is bypassing the resistor. Connect the resistor in the loop to see how it dims the bulb.'
               : 'Try changing the voltage or resistance and observe how the bulb brightness and current change.')
-            : 'Drag components to the canvas and connect them with wires to complete a circuit!'}
+            : (!hasResistorOnCanvas
+              ? 'Hint: Drag a resistor from the sidebar onto the canvas! It acts as a safety shield to control the flow of electricity.'
+              : (!hasResistorInLoop
+                ? 'Hint: Connect the resistor into your circuit! Including it in the loop protects the bulb from receiving too much power.'
+                : 'Hint: Connect the battery, resistor, and bulb in a loop with wires to complete your circuit!'))}
         </p>
       </div>
 

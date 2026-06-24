@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, CSSProperties } from 'react'
 import {
   CircuitState,
   PlacedComponent,
@@ -20,6 +20,14 @@ let componentCounter = 0
  
 export default function App() {
   const [state, setState] = useState<CircuitState>(initialState)
+  const [successDismissed, setSuccessDismissed] = useState(false)
+
+  // Reset dismissed state when circuit goes from complete to incomplete
+  useEffect(() => {
+    if (!state.isComplete) {
+      setSuccessDismissed(false)
+    }
+  }, [state.isComplete])
  
   // ── Apply theme to document ──────────────────────────────────
   useEffect(() => {
@@ -112,12 +120,6 @@ export default function App() {
         showCelebration: justCompleted,
         hasEverCompleted: prev.hasEverCompleted || justCompleted,
       }))
- 
-      if (justCompleted) {
-        setTimeout(() => {
-          setState(prev => ({ ...prev, showCelebration: false }))
-        }, 2500)
-      }
     },
     [state, recalculate]
   )
@@ -144,6 +146,38 @@ export default function App() {
   const handleReset = useCallback(() => {
     setState({ ...initialState, isDark: state.isDark })
   }, [state.isDark])
+
+  // ── Remove wire ──────────────────────────────────────────────
+  const handleRemoveWire = useCallback((wireId: string) => {
+    setState(prev => {
+      const newWires = prev.wires.filter(w => w.id !== wireId)
+      const calc = recalculate(prev.components, newWires, prev.voltage, prev.resistance)
+      return {
+        ...prev,
+        wires: newWires,
+        ...calc,
+      }
+    })
+  }, [recalculate])
+
+  // ── Remove component ──────────────────────────────────────────
+  const handleRemoveComponent = useCallback((compId: string) => {
+    setState(prev => {
+      const newComponents = prev.components.filter(c => c.id !== compId)
+      const targetComp = prev.components.find(c => c.id === compId)
+      const terminalIds = targetComp ? targetComp.terminals.map(t => t.id) : []
+      const newWires = prev.wires.filter(
+        w => !terminalIds.includes(w.fromTerminalId) && !terminalIds.includes(w.toTerminalId)
+      )
+      const calc = recalculate(newComponents, newWires, prev.voltage, prev.resistance)
+      return {
+        ...prev,
+        components: newComponents,
+        wires: newWires,
+        ...calc,
+      }
+    })
+  }, [recalculate])
 
   // ── Drag start from sidebar ───────────────────────────────────
   const handleSidebarDragStart = useCallback(
@@ -196,6 +230,8 @@ export default function App() {
           onDropComponent={handleDropComponent}
           onMoveComponent={handleMoveComponent}
           onAddWire={handleAddWire}
+          onRemoveWire={handleRemoveWire}
+          onRemoveComponent={handleRemoveComponent}
         />
  
         {/* Right Controls */}
@@ -208,9 +244,84 @@ export default function App() {
           power={state.power}
           isComplete={state.isComplete}
           hasResistorInLoop={state.hasResistorInLoop}
+          hasResistorOnCanvas={state.components.some(c => c.type === 'resistor')}
           onVoltageChange={handleVoltageChange}
           onResistanceChange={handleResistanceChange}
         />
+
+        {/* Workspace Success Sheet */}
+        {state.isComplete && !successDismissed && (
+          <>
+            <div className="success-overlay" onClick={() => setSuccessDismissed(true)}>
+              <div className="success-ripple" />
+            </div>
+            <div className="success-sheet" role="alert" aria-live="assertive">
+              <div className="success-sheet-glow-bar" />
+              
+              {/* Confetti sparks */}
+              <div className="success-confetti-container">
+                <div className="confetti" style={{ '--dx': '-160px', '--dy': '140px', '--color': '#fbbf24', '--delay': '0.1s' } as CSSProperties} />
+                <div className="confetti" style={{ '--dx': '-90px', '--dy': '200px', '--color': '#f59e0b', '--delay': '0.2s' } as CSSProperties} />
+                <div className="confetti" style={{ '--dx': '-30px', '--dy': '240px', '--color': '#3b82f6', '--delay': '0.05s' } as CSSProperties} />
+                <div className="confetti" style={{ '--dx': '30px', '--dy': '220px', '--color': '#60a5fa', '--delay': '0.15s' } as CSSProperties} />
+                <div className="confetti" style={{ '--dx': '100px', '--dy': '160px', '--color': '#22c55e', '--delay': '0s' } as CSSProperties} />
+                <div className="confetti" style={{ '--dx': '-130px', '--dy': '180px', '--color': '#818cf8', '--delay': '0.25s' } as CSSProperties} />
+                <div className="confetti" style={{ '--dx': '70px', '--dy': '190px', '--color': '#a855f7', '--delay': '0.08s' } as CSSProperties} />
+                <div className="confetti" style={{ '--dx': '-50px', '--dy': '160px', '--color': '#ec4899', '--delay': '0.12s' } as CSSProperties} />
+              </div>
+
+              <div className="success-sheet-header">
+                <div className="success-sheet-icon">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', flexGrow: 1 }}>
+                  <div className="success-sheet-congrats">Congratulations!</div>
+                  <h3 className="success-sheet-title">Circuit Connected Successfully</h3>
+                </div>
+                <button
+                  className="success-sheet-close"
+                  onClick={() => setSuccessDismissed(true)}
+                  aria-label="Dismiss success message"
+                >
+                  &times;
+                </button>
+              </div>
+              <div className="success-sheet-content">
+                <p>
+                  Electricity is flowing through your circuit, heating up the bulb's filament until it glows!
+                </p>
+                <p className="success-sheet-detail">
+                  Adjust the <strong>voltage</strong> (battery power) or <strong>resistance</strong> (dimmer) on the control panel to see the bulb glow brighter or dimmer!
+                </p>
+              </div>
+
+              {/* Show Electricity Toggle */}
+              <div className="success-sheet-option-row">
+                <div className="option-row-label">
+                  <span style={{ fontSize: '15px' }} aria-hidden="true">⚡</span>
+                  <span>Show electricity particle flow animation</span>
+                </div>
+                <label className="switch-control" htmlFor="success-particle-toggle">
+                  <input
+                    id="success-particle-toggle"
+                    type="checkbox"
+                    checked={state.showParticles}
+                    onChange={() => setState(prev => ({ ...prev, showParticles: !prev.showParticles }))}
+                  />
+                  <span className="switch-slider" />
+                </label>
+              </div>
+
+              <div className="success-sheet-footer">
+                <button className="btn btn-got-it" onClick={() => setSuccessDismissed(true)}>
+                  Got It!
+                </button>
+              </div>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Footer */}

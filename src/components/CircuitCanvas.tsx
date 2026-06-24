@@ -35,6 +35,8 @@ interface CircuitCanvasProps {
   onDropComponent: (type: string, x: number, y: number) => void
   onMoveComponent: (id: string, x: number, y: number) => void
   onAddWire: (fromId: string, toId: string, wireType: WireType) => void
+  onRemoveWire?: (wireId: string) => void
+  onRemoveComponent?: (compId: string) => void
 }
 
 const SNAP_RADIUS = 32
@@ -174,21 +176,18 @@ export function CircuitCanvas({
   onDropComponent,
   onMoveComponent,
   onAddWire,
+  onRemoveWire,
+  onRemoveComponent,
 }: CircuitCanvasProps) {
   const svgRef = useRef<SVGSVGElement>(null)
-  const [svgSize, setSvgSize] = useState({ w: 800, h: 500 })
   const [tooltip, setTooltip] = useState<TooltipData | null>(null)
   const [hoveredWire, setHoveredWire] = useState<string | null>(null)
   const [hoveredComp, setHoveredComp] = useState<string | null>(null)
   const [hoveredTerminal, setHoveredTerminal] = useState<string | null>(null)
-  const [toastDismissed, setToastDismissed] = useState(false)
 
-  // Reset dismissed state when circuit goes from complete to incomplete
-  useEffect(() => {
-    if (!isComplete) {
-      setToastDismissed(false)
-    }
-  }, [isComplete])
+  const CANVAS_WIDTH = 1400
+  const CANVAS_HEIGHT = 800
+
 
   // Calculate path-based terminal order to orient wires correctly along current flow
   const terminalPath = useMemo(() => {
@@ -255,16 +254,7 @@ export function CircuitCanvas({
     snappedTerminalId: string | null
   } | null>(null)
 
-  // ── Track SVG size ────────────────────────────────────────────────────
-  useEffect(() => {
-    const el = svgRef.current?.parentElement
-    if (!el) return
-    const ro = new ResizeObserver(([entry]) => {
-      setSvgSize({ w: entry.contentRect.width, h: entry.contentRect.height })
-    })
-    ro.observe(el)
-    return () => ro.disconnect()
-  }, [])
+
 
   // ── SVG coordinate conversion ─────────────────────────────────────────
   const clientToSVG = useCallback((cx: number, cy: number) => {
@@ -431,9 +421,9 @@ export function CircuitCanvas({
       <svg
         ref={svgRef}
         className="circuit-canvas"
-        width="100%"
-        height="100%"
-        viewBox={`0 0 ${svgSize.w} ${svgSize.h}`}
+        width={CANVAS_WIDTH}
+        height={CANVAS_HEIGHT}
+        viewBox={`0 0 ${CANVAS_WIDTH} ${CANVAS_HEIGHT}`}
         style={{ cursor: draggingId ? 'grabbing' : isDrawingWire ? 'crosshair' : 'default' }}
         onDragOver={e => e.preventDefault()}
         onDrop={handleDrop}
@@ -485,16 +475,23 @@ export function CircuitCanvas({
             <g key={wire.id} style={{ cursor: 'pointer' }}>
               {/* Invisible fat hit area */}
               <path d={path} stroke="transparent" strokeWidth="18" fill="none"
+                onDoubleClick={() => {
+                  if (onRemoveWire) onRemoveWire(wire.id)
+                  setTooltip(null)
+                }}
                 onMouseEnter={e => {
                   setHoveredWire(wire.id)
-                  if (!isComplete) return
+                  const lines = [
+                    { key: 'Wire', val: wire.wireType === 'live' ? 'Live (Brown)' : 'Neutral (Blue)' }
+                  ]
+                  if (isComplete) {
+                    lines.push({ key: 'Voltage', val: `${voltage} V` })
+                    lines.push({ key: 'Current', val: `${current.toFixed(3)} A` })
+                  }
+                  lines.push({ key: 'Tip', val: 'Double-click to delete' })
                   setTooltip({
                     x: e.clientX, y: e.clientY,
-                    lines: [
-                      { key: 'Type',    val: wire.wireType === 'live' ? 'Live (Brown)' : 'Neutral (Blue)' },
-                      { key: 'Voltage', val: `${voltage} V` },
-                      { key: 'Current', val: `${current.toFixed(3)} A` },
-                    ],
+                    lines
                   })
                 }}
                 onMouseLeave={() => { setHoveredWire(null); setTooltip(null) }}
@@ -593,8 +590,8 @@ export function CircuitCanvas({
                 />
               )}
 
-              {/* Component SVG body (pointer-events auto so click bubbles to parent <g>) */}
-              <g style={{ pointerEvents: 'auto' }} draggable="false">
+              {/* Component SVG body (scaled visually to 75% to match scaled specs) */}
+              <g transform="scale(0.75)" style={{ pointerEvents: 'auto' }} draggable="false">
                 {comp.type === 'battery' && (
                   <g transform="translate(-40,-68)">
                     <BatterySVG voltage={voltage} />
@@ -678,6 +675,33 @@ export function CircuitCanvas({
                   </g>
                 )
               })}
+
+              {/* Delete component button (shows when hovered) */}
+              {isHovered && onRemoveComponent && (
+                <g
+                  className="delete-button-group"
+                  transform={`translate(${spec.width / 2}, ${-spec.height / 2})`}
+                  style={{ cursor: 'pointer', pointerEvents: 'auto' }}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onRemoveComponent(comp.id)
+                  }}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onMouseUp={(e) => e.stopPropagation()}
+                >
+                  {/* Large invisible hit area for easy clickability */}
+                  <circle cx="0" cy="0" r="24" fill="rgba(0,0,0,0)" style={{ pointerEvents: 'all' }} />
+                  
+                  {/* Centered Minimal Trash Can SVG Icon (Larger: 18px x 18px) */}
+                  <g transform="translate(-9, -9)" className="delete-icon-svg" style={{ transition: 'all 0.15s ease', transformOrigin: 'center', pointerEvents: 'none' }}>
+                    <path d="M6 5V3A1.5 1.5 0 0 1 7.5 1.5h3A1.5 1.5 0 0 1 12 3v2" fill="none" stroke="#ef4444" strokeWidth="1.8" strokeLinecap="round" />
+                    <line x1="2.5" y1="5" x2="15.5" y2="5" stroke="#ef4444" strokeWidth="1.8" strokeLinecap="round" />
+                    <path d="M4.2 5l1 10.5A1.5 1.5 0 0 0 6.7 17h4.6a1.5 1.5 0 0 0 1.5-1.5l1-10.5" fill="none" stroke="#ef4444" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                    <line x1="7.2" y1="8" x2="7.2" y2="13.5" stroke="#ef4444" strokeWidth="1.5" strokeLinecap="round" />
+                    <line x1="10.8" y1="8" x2="10.8" y2="13.5" stroke="#ef4444" strokeWidth="1.5" strokeLinecap="round" />
+                  </g>
+                </g>
+              )}
             </g>
           )
         })}
@@ -686,30 +710,7 @@ export function CircuitCanvas({
         {/* Confetti and large banner replaced with simple, clean toast message */}
       </svg>
 
-      {/* ── Celebration / Learning Toast at the top ── */}
-      {isComplete && !toastDismissed && (
-        <div className="celebration-toast" role="alert" aria-live="assertive">
-          <div className="celebration-toast-icon" aria-hidden="true">✨</div>
-          <div className="celebration-toast-content">
-            <h3>Congratulations! Circuit complete</h3>
-            <p>
-              Electricity flows from the battery's positive terminal (
-              <span className="highlight-live">live wire</span>
-              ) through the resistor and bulb, and back to the negative terminal (
-              <span className="highlight-neutral">neutral wire</span>
-              ). Current heats the tungsten filament until it glows white-hot.
-              Raise voltage or lower resistance — watch the filament change colour!
-            </p>
-          </div>
-          <button
-            className="celebration-toast-close"
-            onClick={() => setToastDismissed(true)}
-            aria-label="Dismiss completion message"
-          >
-            ×
-          </button>
-        </div>
-      )}
+
 
       {/* ── Tooltip ── */}
       {tooltip && (

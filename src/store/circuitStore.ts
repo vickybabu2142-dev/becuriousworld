@@ -181,27 +181,27 @@ export const COMPONENT_SPECS: Record<ComponentType, {
   terminals: Omit<Terminal, 'id' | 'componentId'>[]
 }> = {
   battery: {
-    width: 80,
-    height: 120,
+    width: 60,
+    height: 90,
     terminals: [
-      { label: 'pos', dx: 0, dy: -61 },
-      { label: 'neg', dx: 0, dy: 59 },
+      { label: 'pos', dx: 0, dy: -46 },
+      { label: 'neg', dx: 0, dy: 44 },
     ],
   },
   bulb: {
-    width: 80,
-    height: 100,
+    width: 60,
+    height: 75,
     terminals: [
-      { label: 'a', dx: -22, dy: 54 },
-      { label: 'b', dx: 22, dy: 54 },
+      { label: 'a', dx: -16.5, dy: 40.5 },
+      { label: 'b', dx: 16.5, dy: 40.5 },
     ],
   },
   resistor: {
-    width: 120,
-    height: 40,
+    width: 90,
+    height: 30,
     terminals: [
-      { label: 'left', dx: -63, dy: 0 },
-      { label: 'right', dx: 63, dy: 0 },
+      { label: 'left', dx: -47.25, dy: 0 },
+      { label: 'right', dx: 47.25, dy: 0 },
     ],
   },
 }
