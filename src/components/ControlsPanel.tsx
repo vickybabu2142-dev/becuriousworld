@@ -176,21 +176,30 @@ export function ControlsPanel({
 
       <div className="metric-divider" />
 
-      {/* Tip Card */}
-      <div className="tip-card" role="complementary" aria-label="Learning tip">
-        <span className="tip-card-icon" aria-hidden="true">💡</span>
-        <p className="tip-card-text">
-          {isComplete
-            ? (!hasResistorInLoop
-              ? 'The circuit is complete! However, current is bypassing the resistor. Connect the resistor in the loop to see how it dims the bulb.'
-              : 'Try changing the voltage or resistance and observe how the bulb brightness and current change.')
-            : (!hasResistorOnCanvas
+      {/* Tip or Warning Card */}
+      {isComplete && !hasResistorInLoop ? (
+        <div className="warning-card" role="alert" aria-label="Circuit warning">
+          <span className="warning-card-icon" aria-hidden="true">⚠️</span>
+          <p className="warning-card-text">
+            {!hasResistorOnCanvas
+              ? 'Overload Warning: The bulb is connected directly to the battery with no resistor! High current may damage the bulb. Drag a resistor from the sidebar and place it in the loop.'
+              : 'Warning: The circuit is complete, but current is bypassing the resistor! Connect the resistor in-line within the loop to safely limit the current.'}
+          </p>
+        </div>
+      ) : (
+        <div className="tip-card" role="complementary" aria-label="Learning tip">
+          <span className="tip-card-icon" aria-hidden="true">💡</span>
+          <p className="tip-card-text">
+            {isComplete
+              ? 'Try changing the voltage or resistance and observe how the bulb brightness and current change.'
+              : !hasResistorOnCanvas
               ? 'Hint: Drag a resistor from the sidebar onto the canvas! It acts as a safety shield to control the flow of electricity.'
-              : (!hasResistorInLoop
-                ? 'Hint: Connect the resistor into your circuit! Including it in the loop protects the bulb from receiving too much power.'
-                : 'Hint: Connect the battery, resistor, and bulb in a loop with wires to complete your circuit!'))}
-        </p>
-      </div>
+              : !hasResistorInLoop
+              ? 'Hint: Connect the resistor into your circuit! Including it in the loop protects the bulb from receiving too much power.'
+              : 'Hint: Connect the battery, resistor, and bulb in a loop with wires to complete your circuit!'}
+          </p>
+        </div>
+      )}
 
       {/* Hover Hint Card */}
       <div className="hint-card" role="complementary" aria-label="Interaction hint">

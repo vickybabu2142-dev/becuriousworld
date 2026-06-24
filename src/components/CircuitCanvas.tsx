@@ -26,6 +26,7 @@ interface CircuitCanvasProps {
   components: PlacedComponent[]
   wires: Wire[]
   isComplete: boolean
+  hasResistorInLoop?: boolean
   showParticles: boolean
   selectedWireType: WireType
   voltage: number
@@ -167,6 +168,7 @@ export function CircuitCanvas({
   components,
   wires,
   isComplete,
+  hasResistorInLoop = false,
   showParticles,
   selectedWireType,
   voltage,
@@ -253,6 +255,10 @@ export function CircuitCanvas({
     currentPos: { x: number; y: number }
     snappedTerminalId: string | null
   } | null>(null)
+
+  // ── Delete Overlay State ─────────────────────────────────────────────
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; type: 'component' | 'wire'; x: number; y: number } | null>(null)
+  const lastTouchRef = useRef<{ id: string; time: number } | null>(null)
 
   // ── Zoom State ──────────────────────────────────────────────────────
   const [zoom, setZoom] = useState(1.0)
@@ -397,6 +403,7 @@ export function CircuitCanvas({
     if (wireRef.current.active) return
     e.stopPropagation()
     e.preventDefault()
+    setDeleteTarget(null)
     const pos = clientToSVG(e.clientX, e.clientY)
     dragRef.current = { id: comp.id, offX: pos.x - comp.x, offY: pos.y - comp.y }
     setDraggingId(comp.id)
@@ -405,8 +412,19 @@ export function CircuitCanvas({
   const handleCompTouchStart = useCallback((e: React.TouchEvent, comp: PlacedComponent) => {
     if (wireRef.current.active) return
     e.stopPropagation()
+    const now = Date.now()
+    const lastTouch = lastTouchRef.current
     const touch = e.touches[0]
     const pos = clientToSVG(touch.clientX, touch.clientY)
+
+    if (lastTouch && lastTouch.id === comp.id && (now - lastTouch.time) < 300) {
+      setDeleteTarget({ id: comp.id, type: 'component', x: pos.x, y: pos.y })
+      lastTouchRef.current = null
+      return
+    }
+    lastTouchRef.current = { id: comp.id, time: now }
+
+    setDeleteTarget(null)
     dragRef.current = { id: comp.id, offX: pos.x - comp.x, offY: pos.y - comp.y }
     setDraggingId(comp.id)
   }, [clientToSVG])
@@ -420,6 +438,7 @@ export function CircuitCanvas({
     if (e.button !== 0) return
     e.stopPropagation()
     e.preventDefault()
+    setDeleteTarget(null)
     const abs = getTerminalAbsPos(comp, terminal)
     wireRef.current = {
       active: true,
@@ -437,6 +456,7 @@ export function CircuitCanvas({
     comp: PlacedComponent,
   ) => {
     e.stopPropagation()
+    setDeleteTarget(null)
     const touch = e.touches[0]
     const abs = getTerminalAbsPos(comp, terminal)
     wireRef.current = {
@@ -567,6 +587,7 @@ export function CircuitCanvas({
   // ── Sidebar drop ─────────────────────────────────────────────────────
   const handleDrop = useCallback((e: React.DragEvent<SVGSVGElement>) => {
     e.preventDefault()
+    setDeleteTarget(null)
     const type = e.dataTransfer.getData('componentType')
     if (!type) return
     const pos = clientToSVG(e.clientX, e.clientY)
@@ -607,10 +628,11 @@ export function CircuitCanvas({
 
       {/* ── Zoom Controls ── */}
       <div className="canvas-zoom-controls" aria-label="Zoom controls">
+        <button className="zoom-btn zoom-fit-btn" onClick={handleZoomToFit} aria-label="Zoom to fit">Fit</button>
+        <div className="zoom-divider" />
         <button className="zoom-btn" onClick={() => setZoom(z => Math.max(0.4, Number((z - 0.1).toFixed(2))))} aria-label="Zoom out">−</button>
         <span className="zoom-level">{Math.round(zoom * 100)}%</span>
         <button className="zoom-btn" onClick={() => setZoom(z => Math.min(2.0, Number((z + 0.1).toFixed(2))))} aria-label="Zoom in">+</button>
-        <button className="zoom-btn zoom-fit-btn" onClick={handleZoomToFit} aria-label="Zoom to fit">Fit</button>
       </div>
 
       {/* ── SVG Canvas ── */}
@@ -653,6 +675,7 @@ export function CircuitCanvas({
             height={CANVAS_HEIGHT}
             fill="url(#canvas-grid)"
             style={{ pointerEvents: 'all' }}
+            onClick={() => setDeleteTarget(null)}
           />
 
           {/* ── Wires ── */}
@@ -687,9 +710,24 @@ export function CircuitCanvas({
               <g key={wire.id} style={{ cursor: 'pointer' }}>
                 {/* Invisible fat hit area */}
                 <path d={path} stroke="transparent" strokeWidth="18" fill="none"
-                  onDoubleClick={() => {
-                    if (onRemoveWire) onRemoveWire(wire.id)
+                  onDoubleClick={(e) => {
+                    e.stopPropagation()
+                    const pos = clientToSVG(e.clientX, e.clientY)
+                    setDeleteTarget({ id: wire.id, type: 'wire', x: pos.x, y: pos.y })
                     setTooltip(null)
+                  }}
+                  onTouchStart={(e) => {
+                    const now = Date.now()
+                    const lastTouch = lastTouchRef.current
+                    const touch = e.touches[0]
+                    const pos = clientToSVG(touch.clientX, touch.clientY)
+                    if (lastTouch && lastTouch.id === wire.id && (now - lastTouch.time) < 300) {
+                      e.stopPropagation()
+                      setDeleteTarget({ id: wire.id, type: 'wire', x: pos.x, y: pos.y })
+                      lastTouchRef.current = null
+                      return
+                    }
+                    lastTouchRef.current = { id: wire.id, time: now }
                   }}
                   onMouseEnter={e => {
                     setHoveredWire(wire.id)
@@ -700,7 +738,7 @@ export function CircuitCanvas({
                       lines.push({ key: 'Voltage', val: `${voltage} V` })
                       lines.push({ key: 'Current', val: `${current.toFixed(3)} A` })
                     }
-                    lines.push({ key: 'Tip', val: 'Double-click to delete' })
+                    lines.push({ key: 'Tip', val: 'Double-click/tap to delete' })
                     setTooltip({
                       x: e.clientX, y: e.clientY,
                       lines
@@ -778,6 +816,11 @@ export function CircuitCanvas({
                 }}
                 onMouseDown={e => handleCompMouseDown(e, comp)}
                 onTouchStart={e => handleCompTouchStart(e, comp)}
+                onDoubleClick={e => {
+                  e.stopPropagation()
+                  const pos = clientToSVG(e.clientX, e.clientY)
+                  setDeleteTarget({ id: comp.id, type: 'component', x: pos.x, y: pos.y })
+                }}
                 onMouseEnter={() => { if (!draggingId && !isDrawingWire) setHoveredComp(comp.id) }}
                 onMouseLeave={() => setHoveredComp(null)}
               >
@@ -887,34 +930,36 @@ export function CircuitCanvas({
                     </g>
                   )
                 })}
-
-                {/* Delete button */}
-                {isHovered && onRemoveComponent && (
-                  <g
-                    className="delete-button-group"
-                    transform={`translate(${spec.width / 2}, ${-spec.height / 2})`}
-                    style={{ cursor: 'pointer', pointerEvents: 'all' }}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      onRemoveComponent(comp.id)
-                    }}
-                    onMouseDown={(e) => e.stopPropagation()}
-                    onTouchStart={(e) => e.stopPropagation()}
-                    onMouseUp={(e) => e.stopPropagation()}
-                  >
-                    <circle cx="0" cy="0" r="24" fill="rgba(0,0,0,0)" style={{ pointerEvents: 'all' }} />
-                    <g transform="translate(-9, -9)" className="delete-icon-svg" style={{ transition: 'all 0.15s ease', transformOrigin: 'center', pointerEvents: 'none' }}>
-                      <path d="M6 5V3A1.5 1.5 0 0 1 7.5 1.5h3A1.5 1.5 0 0 1 12 3v2" fill="none" stroke="#ef4444" strokeWidth="1.8" strokeLinecap="round" />
-                      <line x1="2.5" y1="5" x2="15.5" y2="5" stroke="#ef4444" strokeWidth="1.8" strokeLinecap="round" />
-                      <path d="M4.2 5l1 10.5A1.5 1.5 0 0 0 6.7 17h4.6a1.5 1.5 0 0 0 1.5-1.5l1-10.5" fill="none" stroke="#ef4444" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-                      <line x1="7.2" y1="8" x2="7.2" y2="13.5" stroke="#ef4444" strokeWidth="1.5" strokeLinecap="round" />
-                      <line x1="10.8" y1="8" x2="10.8" y2="13.5" stroke="#ef4444" strokeWidth="1.5" strokeLinecap="round" />
-                    </g>
-                  </g>
-                )}
               </g>
             )
           })}
+          {/* ── Floating Delete Overlay ── */}
+          {deleteTarget && (
+            <g
+              transform={`translate(${deleteTarget.x}, ${deleteTarget.y})`}
+              style={{ cursor: 'pointer', pointerEvents: 'all' }}
+              onClick={(e) => {
+                e.stopPropagation()
+                if (deleteTarget.type === 'component') {
+                  onRemoveComponent?.(deleteTarget.id)
+                } else {
+                  onRemoveWire?.(deleteTarget.id)
+                }
+                setDeleteTarget(null)
+              }}
+              onMouseDown={(e) => e.stopPropagation()}
+              onTouchStart={(e) => e.stopPropagation()}
+            >
+              <circle cx="0" cy="0" r="18" fill="var(--bg-surface)" stroke="#ef4444" strokeWidth="2.5" style={{ filter: 'drop-shadow(0 4px 12px rgba(239, 68, 68, 0.35))' }} />
+              <g transform="translate(-9, -9)" className="delete-icon-svg" style={{ pointerEvents: 'none' }}>
+                <path d="M6 5V3A1.5 1.5 0 0 1 7.5 1.5h3A1.5 1.5 0 0 1 12 3v2" fill="none" stroke="#ef4444" strokeWidth="1.8" strokeLinecap="round" />
+                <line x1="2.5" y1="5" x2="15.5" y2="5" stroke="#ef4444" strokeWidth="1.8" strokeLinecap="round" />
+                <path d="M4.2 5l1 10.5A1.5 1.5 0 0 0 6.7 17h4.6a1.5 1.5 0 0 0 1.5-1.5l1-10.5" fill="none" stroke="#ef4444" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                <line x1="7.2" y1="8" x2="7.2" y2="13.5" stroke="#ef4444" strokeWidth="1.5" strokeLinecap="round" />
+                <line x1="10.8" y1="8" x2="10.8" y2="13.5" stroke="#ef4444" strokeWidth="1.5" strokeLinecap="round" />
+              </g>
+            </g>
+          )}
         </g>
       </svg>
 

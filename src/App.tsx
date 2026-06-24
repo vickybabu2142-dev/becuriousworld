@@ -253,6 +253,7 @@ export default function App() {
           components={state.components}
           wires={state.wires}
           isComplete={state.isComplete}
+          hasResistorInLoop={state.hasResistorInLoop}
           showParticles={state.showParticles}
           selectedWireType={state.selectedWireType}
           voltage={state.voltage}
