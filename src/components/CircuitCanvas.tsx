@@ -130,7 +130,8 @@ function buildPath(
   b: { x: number; y: number },
   wireType: WireType,
   fromTerminalId: string | null,
-  toTerminalId: string | null
+  toTerminalId: string | null,
+  components: PlacedComponent[] = []
 ) {
   const spec1 = getTerminalSpec(fromTerminalId)
   const spec2 = getTerminalSpec(toTerminalId)
@@ -146,15 +147,23 @@ function buildPath(
     points.push(p1)
   }
 
+  // Locate battery to determine upper/lower routing lanes dynamically
+  const battery = components.find(c => c.type === 'battery')
+  const posTerminal = battery?.terminals.find(t => t.label === 'pos')
+  const negTerminal = battery?.terminals.find(t => t.label === 'neg')
+  
+  const LANE_UP = battery && posTerminal ? battery.y + posTerminal.dy - 30 : 309
+  const LANE_DOWN = battery && negTerminal ? battery.y + negTerminal.dy + 30 : 489
+
   // Orthogonal routing logic without overlapping offsets
   if (spec1.dir === 'V' && spec2.dir === 'V') {
     const my = (p1.y + p2.y) / 2
     points.push({ x: p1.x, y: my })
     points.push({ x: p2.x, y: my })
   } else if (spec1.dir === 'H' && spec2.dir === 'H') {
-    const mx = (p1.x + p2.x) / 2
-    points.push({ x: mx, y: p1.y })
-    points.push({ x: mx, y: p2.y })
+    const laneY = wireType === 'live' ? LANE_UP : LANE_DOWN
+    points.push({ x: p1.x, y: laneY })
+    points.push({ x: p2.x, y: laneY })
   } else if (spec1.dir === 'V' && spec2.dir === 'H') {
     points.push({ x: p2.x, y: p1.y })
   } else {
@@ -784,7 +793,7 @@ export function CircuitCanvas({
             if (!from || !to) return null
             const color = getWireColor(wire.wireType)
             const glowColor = getWireGlowColor(wire.wireType)
-            const path = buildPath(from, to, wire.wireType, actualFromId, actualToId)
+            const path = buildPath(from, to, wire.wireType, actualFromId, actualToId, components)
             const active = isComplete
             const isHov = hoveredWire === wire.id
 
@@ -860,7 +869,7 @@ export function CircuitCanvas({
               : null
             const toPos = snapPos || wirePreview.currentPos
             const color = getWireColor(selectedWireType)
-            const path  = buildPath(wirePreview.fromPos, toPos, selectedWireType, wireRef.current.fromTerminalId, wirePreview.snappedTerminalId)
+            const path  = buildPath(wirePreview.fromPos, toPos, selectedWireType, wireRef.current.fromTerminalId, wirePreview.snappedTerminalId, components)
             return (
               <g style={{ pointerEvents: 'none' }}>
                 <path d={path} stroke={color} strokeWidth="6"
