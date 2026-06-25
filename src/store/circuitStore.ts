@@ -102,7 +102,7 @@ export function analyzeCircuit(
 
   // We perform a terminal-level DFS to find if there is a path from the
   // Battery Positive terminal to the Battery Negative terminal that passes through the bulb.
-  const visited = new Set<string>()
+  const visited = new Set<string>([posTerminal.id])
   let foundHasResistor = false
 
   function dfs(currTerminalId: string, hasPassedBulb: boolean, hasPassedResistor: boolean): boolean {

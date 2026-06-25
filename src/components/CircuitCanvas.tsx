@@ -303,6 +303,7 @@ export function CircuitCanvas({
   // ── Zoom State ──────────────────────────────────────────────────────
   // Start at 1.0; initial auto-fit runs in useEffect after layout.
   const [zoom, setZoom] = useState(1.0)
+  const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // ── Zoom-to-fit utility ──────────────────────────────────────────────
   const handleZoomToFit = useCallback(() => {
@@ -359,7 +360,8 @@ export function CircuitCanvas({
     setZoom(finalZoom)
 
     // Scroll parent to center the content region
-    setTimeout(() => {
+    if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current)
+    scrollTimerRef.current = setTimeout(() => {
       const centerX = (minX + maxX) / 2
       const centerY = (minY + maxY) / 2
       parent.scrollLeft = centerX * finalZoom - r.width / 2
@@ -398,7 +400,10 @@ export function CircuitCanvas({
       handleZoomToFit()
     }
     window.addEventListener('resize', handleResize)
-    return () => window.removeEventListener('resize', handleResize)
+    return () => {
+      window.removeEventListener('resize', handleResize)
+      if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current)
+    }
   }, [handleZoomToFit])
 
 
@@ -521,9 +526,30 @@ export function CircuitCanvas({
     setWirePreview({ fromPos: abs, currentPos: abs, snappedTerminalId: null })
   }, [])
 
+  // Keep event listener callbacks fresh using a mutable ref to prevent
+  // unbinding and rebinding window-level listeners on every component drag step.
+  const listenersRef = useRef({
+    clientToSVG,
+    onMoveComponent,
+    onAddWire,
+    findNearbyTerminal,
+    selectedWireType,
+  })
+
+  useEffect(() => {
+    listenersRef.current = {
+      clientToSVG,
+      onMoveComponent,
+      onAddWire,
+      findNearbyTerminal,
+      selectedWireType,
+    }
+  })
+
   // ── Window-level events (mouse & touch) ──────────────────────────────
   useEffect(() => {
     const onMouseMove = (e: MouseEvent) => {
+      const { clientToSVG, onMoveComponent, findNearbyTerminal } = listenersRef.current
       const pos = clientToSVG(e.clientX, e.clientY)
 
       // 1. Component drag
@@ -549,6 +575,8 @@ export function CircuitCanvas({
     }
 
     const onMouseUp = (e: MouseEvent) => {
+      const { clientToSVG, findNearbyTerminal, onAddWire, selectedWireType } = listenersRef.current
+
       // Finish component drag
       if (dragRef.current) {
         dragRef.current = null
@@ -573,6 +601,7 @@ export function CircuitCanvas({
 
     const onTouchMove = (e: TouchEvent) => {
       if (e.touches.length === 0) return
+      const { clientToSVG, onMoveComponent, findNearbyTerminal } = listenersRef.current
       const touch = e.touches[0]
       const pos = clientToSVG(touch.clientX, touch.clientY)
 
@@ -601,6 +630,8 @@ export function CircuitCanvas({
     }
 
     const onTouchEnd = (e: TouchEvent) => {
+      const { clientToSVG, findNearbyTerminal, onAddWire, selectedWireType } = listenersRef.current
+
       // Finish component drag
       if (dragRef.current) {
         dragRef.current = null
@@ -636,7 +667,7 @@ export function CircuitCanvas({
       // Clear any pending tooltip hide timers
       if (hideTimerRef.current) clearTimeout(hideTimerRef.current)
     }
-  }, [clientToSVG, onMoveComponent, onAddWire, findNearbyTerminal, selectedWireType])
+  }, [])
 
   // ── Sidebar drop ─────────────────────────────────────────────────────
   const handleDrop = useCallback((e: React.DragEvent<SVGSVGElement>) => {
