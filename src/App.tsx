@@ -16,8 +16,6 @@ import { CircuitCanvas } from './components/CircuitCanvas'
 import { ControlsPanel } from './components/ControlsPanel'
 import { Footer } from './components/Footer'
  
-let componentCounter = 0
-
 // ── Touch drag ref type ──────────────────────────────────────────────────
 interface TouchDragState {
   type: ComponentType | null
@@ -29,6 +27,7 @@ export default function App() {
   const [successDismissed, setSuccessDismissed] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [controlsOpen, setControlsOpen] = useState(false)
+  const componentCounterRef = useRef(0)
   // Touch drag from sidebar to canvas
   const touchDragRef = useRef<TouchDragState>({ type: null, ghostEl: null })
 
@@ -76,7 +75,7 @@ export default function App() {
       const compType = type as ComponentType
       // Only one of each in V1
       if (state.components.some(c => c.type === compType)) return
-      const newComp = makeComponent(compType, x, y, componentCounter++)
+      const newComp = makeComponent(compType, x, y, componentCounterRef.current++)
       const newComponents = [...state.components, newComp]
       const calc = recalculate(newComponents, state.wires, state.voltage, state.resistance)
       setState(prev => ({
@@ -95,18 +94,12 @@ export default function App() {
       // Space components evenly across the canvas width in the SVG coordinate space.
       // Canvas is 1400×800. Place at horizontal thirds and vertical center.
       // These positions look good after auto zoom-to-fit on any screen size.
-      let x = 700
-      let y = 400
-      if (type === 'battery') {
-        x = 300   // left third
-        y = 400
-      } else if (type === 'bulb') {
-        x = 700   // center
-        y = 400
-      } else if (type === 'resistor') {
-        x = 1100  // right third
-        y = 400
+      const defaultPositions: Record<ComponentType, { x: number; y: number }> = {
+        battery: { x: 300, y: 400 },
+        bulb: { x: 700, y: 400 },
+        resistor: { x: 1100, y: 400 },
       }
+      const { x, y } = defaultPositions[type]
       handleDropComponent(type, x, y)
     },
     [state.components, handleDropComponent]
@@ -182,6 +175,7 @@ export default function App() {
 
   // ── Reset ────────────────────────────────────────────────────
   const handleReset = useCallback(() => {
+    componentCounterRef.current = 0
     setState({ ...initialState, isDark: state.isDark })
   }, [state.isDark])
 

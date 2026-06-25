@@ -36,6 +36,7 @@ export function Sidebar({
     // Touch drag to specific canvas position (mobile / tablet)
     onTouchStart: (e: React.TouchEvent) => !placed && onTouchDragStart && onTouchDragStart(type, e),
     style: { opacity: placed && !(type === 'resistor' && resistorWarning) ? 0.45 : 1 } as React.CSSProperties,
+    'aria-disabled': placed,
   })
 
   return (

@@ -30,7 +30,6 @@ export function ControlsPanel({
   // Compute slider fill percentages
   const voltagePct = ((voltage - 1) / (24 - 1)) * 100
   const resistancePct = ((Math.log(resistance) - Math.log(1)) / (Math.log(1000) - Math.log(1))) * 100
-  const brightnessPct = brightness
 
   return (
     <aside className={`controls-panel ${className}`} aria-label="Circuit controls and readings">
@@ -132,7 +131,7 @@ export function ControlsPanel({
           </span>
         </div>
         <div className="brightness-meter-container" role="img" aria-label={`Brightness: ${brightness}%`}>
-          <div className="brightness-meter-fill" style={{ width: `${brightnessPct}%` }} />
+          <div className="brightness-meter-fill" style={{ width: `${brightness}%` }} />
         </div>
         <div className="slider-limits">
           <span>0%</span>
