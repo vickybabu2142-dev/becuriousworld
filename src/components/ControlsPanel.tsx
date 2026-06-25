@@ -1,3 +1,5 @@
+import React from 'react'
+
 interface ControlsPanelProps {
   voltage: number
   resistance: number

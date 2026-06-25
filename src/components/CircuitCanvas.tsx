@@ -1,4 +1,4 @@
-import { useRef, useState, useCallback, useEffect, useMemo } from 'react'
+import React, { useRef, useState, useCallback, useEffect, useMemo } from 'react'
 import {
   PlacedComponent,
   Wire,
@@ -968,7 +968,7 @@ export function CircuitCanvas({
                 )}
 
                 {/* Component SVG body */}
-                <g transform="scale(1.0)" style={{ pointerEvents: 'auto' }} draggable="false">
+                <g transform="scale(1.0)" style={{ pointerEvents: 'auto' }}>
                   {comp.type === 'battery' && (
                     <g transform="translate(-40,-68)">
                       <BatterySVG voltage={voltage} />
@@ -1135,7 +1135,6 @@ export function CircuitCanvas({
         const isLive = tooltip.wireType === 'live'
         const wireLabel = isLive ? 'Live Wire' : 'Neutral Wire'
         const dotColor  = isLive ? '#b45309' : '#3b82f6'
-        const dotBg     = isLive ? 'rgba(180,83,9,0.15)' : 'rgba(59,130,246,0.15)'
 
         return (
           <div

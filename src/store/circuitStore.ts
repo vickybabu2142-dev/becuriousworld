@@ -106,7 +106,7 @@ export function analyzeCircuit(
   let foundHasResistor = false
 
   function dfs(currTerminalId: string, hasPassedBulb: boolean, hasPassedResistor: boolean): boolean {
-    if (currTerminalId === negTerminal.id) {
+    if (currTerminalId === negTerminal!.id) {
       if (hasPassedBulb) {
         foundHasResistor = hasPassedResistor
         return true
