@@ -1,3 +1,4 @@
+import React from 'react'
 import { ComponentType, WireType } from '../store/circuitStore'
 import { BatteryPreview, BulbPreview, ResistorPreview } from './SVGComponents'
 

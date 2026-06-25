@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef, CSSProperties } from 'react'
+import React, { useState, useCallback, useEffect, useRef, CSSProperties } from 'react'
 import {
   CircuitState,
   PlacedComponent,
