@@ -79,7 +79,7 @@ export function Header({
           <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
             <path d="M13 2L4 14h7l-1 8 10-12h-7l1-8z" />
           </svg>
-          Show Electricity
+          <span className="btn-label-text">Show Electricity</span>
         </button>
 
         <button
@@ -93,7 +93,7 @@ export function Header({
             <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
             <path d="M3 3v5h5" />
           </svg>
-          Reset
+          <span className="btn-label-text">Reset</span>
         </button>
 
         <button

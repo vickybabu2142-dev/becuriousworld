@@ -1,3 +1,5 @@
+import { useId } from 'react'
+
 // ======================================================
 // SVG Battery Component
 // ======================================================
@@ -322,15 +324,20 @@ interface ResistorSVGProps {
 }
 
 export function ResistorSVG({ resistance: _resistance, scale = 1 }: ResistorSVGProps) {
+  const uniqueId = useId()
+  const cleanId = uniqueId.replace(/:/g, '') // strip colons to ensure standard SVG ID compatibility
+  const bodyGradId = `res-body-grad-${cleanId}`
+  const shineGradId = `res-shine-${cleanId}`
+
   return (
     <svg viewBox="-68 -22 136 44" width={136 * scale} height={44 * scale} style={{ overflow: 'visible' }}>
       <defs>
-        <linearGradient id="res-body-grad" x1="0%" y1="0%" x2="0%" y2="100%">
+        <linearGradient id={bodyGradId} x1="0%" y1="0%" x2="0%" y2="100%">
           <stop offset="0%" stopColor="#fef9c3" />
           <stop offset="50%" stopColor="#fef3c7" />
           <stop offset="100%" stopColor="#fde68a" />
         </linearGradient>
-        <linearGradient id="res-shine" x1="0%" y1="0%" x2="0%" y2="100%">
+        <linearGradient id={shineGradId} x1="0%" y1="0%" x2="0%" y2="100%">
           <stop offset="0%" stopColor="white" stopOpacity="0.4" />
           <stop offset="50%" stopColor="white" stopOpacity="0.1" />
           <stop offset="100%" stopColor="white" stopOpacity="0" />
@@ -345,7 +352,7 @@ export function ResistorSVG({ resistance: _resistance, scale = 1 }: ResistorSVGP
       <rect x="-31" y="-11" width="62" height="24" rx="6" fill="#92400e" opacity="0.15" transform="translate(1,2)" />
 
       {/* Body */}
-      <rect x="-31" y="-12" width="62" height="24" rx="6" fill="url(#res-body-grad)" />
+      <rect x="-31" y="-12" width="62" height="24" rx="6" fill={`url(#${bodyGradId})`} />
 
       {/* Color bands — 100Ω: Brown(1) Red(0) Brown(×10) Gold(±5%) */}
       <rect x="-22" y="-12" width="7" height="24" fill="#7c2d12" rx="1" />
@@ -354,7 +361,7 @@ export function ResistorSVG({ resistance: _resistance, scale = 1 }: ResistorSVGP
       <rect x="17"  y="-12" width="6" height="24" fill="#ca8a04" rx="1" />
 
       {/* Shine overlay */}
-      <rect x="-31" y="-12" width="62" height="24" rx="6" fill="url(#res-shine)" />
+      <rect x="-31" y="-12" width="62" height="24" rx="6" fill={`url(#${shineGradId})`} />
 
       {/* Terminal dots */}
       <circle cx="-63" cy="0" r="4.5" fill="#6b7280" stroke="#94a3b8" strokeWidth="1" />

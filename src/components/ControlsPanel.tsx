@@ -201,11 +201,16 @@ export function ControlsPanel({
         </div>
       )}
 
-      {/* Hover Hint Card */}
+      {/* Interaction Hint Card — adapts to touch vs. mouse */}
       <div className="hint-card" role="complementary" aria-label="Interaction hint">
-        <span className="hint-card-icon" aria-hidden="true">🖱️</span>
+        <span className="hint-card-icon" aria-hidden="true">
+          <span className="hint-icon-mouse">🖱️</span>
+          <span className="hint-icon-touch">👆</span>
+        </span>
         <p className="hint-card-text">
-          <strong>Hover over any wire</strong> to see voltage and current at that point.
+          <strong className="hint-action-mouse">Hover over any wire</strong>
+          <strong className="hint-action-touch">Tap any wire</strong>
+          {' '}to see voltage and current at that point.
         </p>
       </div>
     </aside>

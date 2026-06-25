@@ -158,6 +158,8 @@ body {
   padding-bottom: env(safe-area-inset-bottom);
   padding-left: env(safe-area-inset-left);
   padding-right: env(safe-area-inset-right);
+  /* Prevent accidental zooming on double-tap for tablet users */
+  touch-action: manipulation;
 }
 
 #root {
@@ -379,6 +381,10 @@ body {
   flex-shrink: 0;
 }
 
+.btn-label-text {
+  /* Visible by default; hidden by responsive rules */
+}
+
 .btn-electricity {
   background: transparent;
   border-color: var(--brand-primary);
@@ -458,6 +464,7 @@ body {
   transition: all var(--transition-base);
   user-select: none;
   position: relative;
+  flex-shrink: 0;
 }
 
 .component-card:hover {
@@ -536,11 +543,28 @@ body {
   min-height: 72px;
 }
 
+.component-preview-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.component-preview-wrapper svg {
+  display: block;
+  flex-shrink: 0;
+  max-width: 100%;
+  max-height: 100%;
+}
+
 .wire-section {
   background: var(--bg-surface);
   border: 1.5px solid var(--border-color);
   border-radius: var(--radius-md);
   padding: 12px;
+  flex-shrink: 0;
 }
 
 .wire-section-title {
@@ -622,10 +646,36 @@ body {
 /* ===== Center Canvas ===== */
 .canvas-wrapper {
   flex: 1;
-  overflow: auto; /* Enable scrollbars when viewport is smaller than canvas */
+  overflow: hidden; /* The inner scroll div handles scrolling */
   position: relative;
   background-color: var(--bg-canvas);
   display: flex;
+  flex-direction: column;
+}
+
+/* The actual scrollable area for the SVG canvas */
+.canvas-scroll-area {
+  flex: 1;
+  overflow: auto;
+  position: relative;
+  display: flex;
+}
+
+/* Non-scrolling overlay: instruction banner + zoom controls sit here */
+.canvas-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;  /* Let clicks pass through to SVG below */
+  z-index: 20;
+}
+
+/* Children of overlay that need to capture events re-enable pointer-events */
+.canvas-overlay .canvas-zoom-controls,
+.canvas-overlay .canvas-instruction.warning-banner {
+  pointer-events: auto;
 }
 
 .canvas-instruction {
@@ -817,24 +867,25 @@ body {
 
 .success-sheet {
   position: absolute;
-  bottom: 24px;
+  top: 50%;
+  bottom: auto;
   left: 50%;
-  transform: translate(-50%, 0);
-  max-width: 620px;
-  width: calc(100% - 48px);
+  transform: translate(-50%, -50%);
+  max-width: 440px;
+  width: calc(100% - 32px);
   background: rgba(30, 41, 59, 0.85);
   backdrop-filter: blur(16px);
   border: 1.5px solid rgba(34, 197, 94, 0.4);
   border-radius: var(--radius-lg);
-  padding: 24px 28px;
+  padding: 20px 24px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
   box-shadow: 
     0 25px 50px -12px rgba(0, 0, 0, 0.5),
     0 0 30px rgba(34, 197, 94, 0.25);
   z-index: 200;
-  animation: sheet-slide-up 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  animation: success-pop-in 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
   color: #f8fafc;
 }
 
@@ -1055,10 +1106,10 @@ body {
   transform: translateX(20px);
 }
 
-/* Confetti Burst Container */
+/* Confetti Burst Container — centered inside the sheet */
 .success-confetti-container {
   position: absolute;
-  top: 0;
+  top: 50%;
   left: 50%;
   width: 0;
   height: 0;
@@ -1077,6 +1128,7 @@ body {
   animation: confetti-burst 1.3s cubic-bezier(0.1, 0.8, 0.3, 1) var(--delay) forwards;
 }
 
+/* Burst outward from center */
 @keyframes confetti-burst {
   0% {
     transform: translate(0, 0) scale(0);
@@ -1084,20 +1136,21 @@ body {
   }
   15% {
     opacity: 1;
-    transform: translate(calc(var(--dx) * 0.15), calc(-1 * var(--dy) * 0.15)) scale(1.5);
+    transform: translate(calc(var(--dx) * 0.15), calc(var(--dy) * 0.15)) scale(1.5);
   }
   100% {
-    transform: translate(var(--dx), calc(-1 * var(--dy))) scale(0.6) rotate(360deg);
+    transform: translate(var(--dx), var(--dy)) scale(0.6) rotate(360deg);
     opacity: 0;
   }
 }
 
-/* Shockwave expansion */
+/* Shockwave expansion — centered in viewport */
 .success-ripple {
   position: absolute;
-  bottom: 24px;
+  top: 50%;
+  bottom: auto;
   left: 50%;
-  transform: translate(-50%, 50%);
+  transform: translate(-50%, -50%);
   width: 0;
   height: 0;
   border-radius: 50%;
@@ -1137,6 +1190,16 @@ body {
 @keyframes sheet-slide-up {
   0% { opacity: 0; transform: translate(-50%, 150px) scale(0.95); }
   100% { opacity: 1; transform: translate(-50%, 0) scale(1); }
+}
+
+@keyframes sheet-slide-down {
+  0% { opacity: 0; transform: translate(-50%, -150px) scale(0.95); }
+  100% { opacity: 1; transform: translate(-50%, 0) scale(1); }
+}
+
+@keyframes success-pop-in {
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(0.9); }
+  100% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
 }
 
 /* ===== Right Controls Panel ===== */
@@ -1409,6 +1472,30 @@ input[type="range"]:hover::-webkit-slider-thumb {
   color: var(--wire-neutral);
 }
 
+/* Touch-adaptive hint — show mouse variant by default */
+.hint-icon-touch,
+.hint-action-touch {
+  display: none;
+}
+
+.hint-icon-mouse,
+.hint-action-mouse {
+  display: inline;
+}
+
+/* On touch devices — flip to touch variant */
+@media (pointer: coarse) {
+  .hint-icon-mouse,
+  .hint-action-mouse {
+    display: none;
+  }
+
+  .hint-icon-touch,
+  .hint-action-touch {
+    display: inline;
+  }
+}
+
 /* ===== Footer ===== */
 .footer {
   height: var(--footer-height);
@@ -1676,10 +1763,8 @@ input[type="range"]:hover::-webkit-slider-thumb {
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.4);
-  backdrop-filter: blur(2px);
+  background: transparent;
   z-index: 140;
-  animation: fadeIn var(--transition-fast) ease;
 }
 
 /* ===== Zoom Controls ===== */
@@ -1747,22 +1832,216 @@ input[type="range"]:hover::-webkit-slider-thumb {
 
 /* ===== Responsive ===== */
 
-/* ── Tablet landscape (≤ 900px) ── */
-@media (max-width: 900px) {
+/* ─────────────────────────────────────────────
+   TABLET LANDSCAPE  (769px – 1024px)
+   Both panels stay visible but compacted.
+   Touch-friendly targets (≥ 44px).
+───────────────────────────────────────────── */
+@media (min-width: 769px) and (max-width: 1024px) {
   :root {
-    --sidebar-width: 180px;
-    --controls-width: 220px;
+    --header-height: 60px;
+    --sidebar-width: 170px;
+    --controls-width: 210px;
+  }
+
+  /* ── Header ── */
+  .header {
+    padding: 0 14px;
+    gap: 10px;
+  }
+
+  .header-logo-icon {
+    width: 36px;
+    height: 36px;
+  }
+
+  .header-logo-text h1 {
+    font-size: 15px;
+  }
+
+  .header-logo-text span {
+    display: none;
+  }
+
+  /* Tabs — shrink slightly */
+  .header-tabs {
+    padding: 3px;
+  }
+
+  .header-tab {
+    padding: 8px 14px;
+    font-size: 13px;
+    min-height: 36px;
+  }
+
+  /* Action buttons — keep label, shrink padding */
+  .header-actions {
+    gap: 6px;
+  }
+
+  .btn {
+    padding: 8px 12px;
+    font-size: 12px;
+    min-height: 36px;
+  }
+
+  /* "Show Electricity" label — abbreviate */
+  #btn-show-electricity span,
+  .btn-electricity > span {
+    display: none;
+  }
+
+  /* ── Sidebar ── */
+  .sidebar {
+    padding: 14px 10px;
+    gap: 6px;
+  }
+
+  .component-card {
+    padding: 10px;
+  }
+
+  .component-card-body {
+    min-height: 60px;
+  }
+
+  .component-card-name {
+    font-size: 12px;
+  }
+
+  .sidebar-section-title {
+    font-size: 10px;
+  }
+
+  /* Wire section compact */
+  .wire-option {
+    padding: 8px 6px;
+  }
+
+  .sidebar-dropzone {
+    padding: 14px 8px;
+    gap: 6px;
+  }
+
+  .sidebar-dropzone-text {
+    font-size: 11px;
+  }
+
+  /* ── Controls Panel ── */
+  .controls-panel {
+    padding: 14px 10px;
+    gap: 10px;
+  }
+
+  .controls-title {
+    font-size: 11px;
+  }
+
+  .slider-label {
+    font-size: 12px;
+  }
+
+  .slider-value {
+    font-size: 12px;
+  }
+
+  .metric-label {
+    font-size: 12px;
+    gap: 6px;
+  }
+
+  .metric-value {
+    font-size: 12px;
+  }
+
+  .tip-card-text,
+  .hint-card-text,
+  .warning-card-text {
+    font-size: 11px;
+  }
+
+  /* ── Canvas instruction — allow wrapping ── */
+  .canvas-instruction {
+    max-width: calc(100% - 40px);
+    white-space: normal;
+    text-align: center;
+    font-size: 12px;
+  }
+
+  /* ── Touch-friendly slider thumbs ── */
+  input[type="range"]::-webkit-slider-thumb {
+    width: 20px;
+    height: 20px;
+  }
+
+  /* ── Success sheet ── */
+  .success-sheet {
+    max-width: calc(100% - 32px);
+    padding: 20px 22px;
+  }
+
+  /* ── Footer compact ── */
+  .footer {
+    padding: 0 14px;
+  }
+
+  .footer-text {
+    font-size: 11px;
+  }
+
+  /* ── Learning card — prevent obscuring canvas ── */
+  .learning-card {
+    left: 10px;
+    right: 10px;
+    bottom: 12px;
+    padding: 12px 16px;
+    gap: 10px;
+  }
+
+  .learning-card-content h3 {
+    font-size: 13px;
+  }
+
+  .learning-card-content p {
+    font-size: 12px;
+  }
+
+  /* ── Zoom controls — larger touch targets for tablet ── */
+  .canvas-zoom-controls {
+    padding: 3px;
+  }
+
+  .zoom-btn {
+    width: 32px;
+    height: 32px;
+    font-size: 15px;
+  }
+
+  .zoom-level {
+    font-size: 12px;
+    min-width: 42px;
   }
 }
 
-/* ── Tablet portrait / Mobile drawer mode (≤ 768px) ── */
+
+/* ─────────────────────────────────────────────
+   TABLET PORTRAIT & MOBILE  (≤ 768px)
+   Drawer mode — panels slide in from edges.
+───────────────────────────────────────────── */
 @media (max-width: 768px) {
   :root {
-    --sidebar-width: 260px;
+    --header-height: 56px;
+    --footer-height: 40px;
+    --sidebar-width: 280px;
     --controls-width: 300px;
   }
 
-  /* Drawers slide in from edges */
+  /* ── App body ── */
+  .app-body {
+    height: calc(100dvh - var(--header-height) - var(--footer-height));
+  }
+
+  /* ── Drawers slide in from edges ── */
   .sidebar {
     position: absolute;
     left: 0;
@@ -1774,6 +2053,9 @@ input[type="range"]:hover::-webkit-slider-thumb {
     box-shadow: var(--shadow-lg);
     max-height: 100%;
     overflow-y: auto;
+    /* Tablet-friendly padding */
+    padding: 16px 14px;
+    gap: 10px;
   }
 
   .sidebar.mobile-open {
@@ -1791,87 +2073,190 @@ input[type="range"]:hover::-webkit-slider-thumb {
     box-shadow: var(--shadow-lg);
     max-height: 100%;
     overflow-y: auto;
+    padding: 16px 14px;
+    gap: 12px;
   }
 
   .controls-panel.mobile-open {
     transform: translateX(0);
   }
 
-  /* Show floating toggle bar */
+  /* ── Touch-friendly component cards ── */
+  .component-card {
+    padding: 12px;
+    min-height: 44px; /* Minimum touch target */
+  }
+
+  .component-card-body {
+    min-height: 68px;
+  }
+
+  /* ── Wire options — taller touch targets ── */
+  .wire-option {
+    padding: 10px 8px;
+    min-height: 44px;
+  }
+
+  /* ── Slider thumbs — larger for fingers ── */
+  input[type="range"] {
+    height: 8px;
+  }
+
+  input[type="range"]::-webkit-slider-thumb {
+    width: 24px;
+    height: 24px;
+  }
+
+  /* ── Show floating toggle bar ── */
   .mobile-toggle-bar {
     display: flex;
   }
 
-  /* Header adjustments */
+  /* ── Header adjustments ── */
+  .header {
+    padding: 0 12px;
+    gap: 8px;
+  }
+
   .header-logo-text span {
     display: none;
   }
 
+  .header-logo-text h1 {
+    font-size: 15px;
+  }
+
   .header-actions {
-    gap: 4px;
+    gap: 5px;
   }
 
   .btn {
-    padding: 6px 12px;
+    padding: 8px 12px;
     font-size: 12px;
+    min-height: 40px;
   }
 
-  /* Canvas instruction banner — allow wrapping so it never clips */
+  /* On tablets, hide "Show Electricity" label text to save header space */
+  .btn-electricity .btn-label-text {
+    display: none;
+  }
+
+  /* ── Canvas instruction — allow wrapping ── */
   .canvas-instruction {
     white-space: normal;
     text-align: center;
     max-width: calc(100vw - 32px);
-    padding: 8px 14px;
+    padding: 8px 16px;
     font-size: 12px;
     line-height: 1.4;
   }
 
-  /* Zoom controls — move slightly so they don't clash with instructions */
+  /* ── Zoom controls — move above toggle bar ── */
   .canvas-zoom-controls {
     top: auto;
-    bottom: 72px; /* above mobile toggle bar */
-    right: 8px;
+    bottom: 80px;
+    right: 10px;
   }
 
-  /* Success sheet — readable on tablets */
+  /* ── Zoom buttons — larger touch targets ── */
+  .zoom-btn {
+    width: 36px;
+    height: 36px;
+    font-size: 16px;
+  }
+
+  /* ── Mobile toggle bar — tablet-sized ── */
+  .mobile-toggle-bar {
+    bottom: 20px;
+    padding: 6px 8px;
+    gap: 6px;
+  }
+
+  .mobile-toggle-btn {
+    padding: 10px 20px;
+    font-size: 14px;
+    gap: 6px;
+    min-height: 44px; /* Apple HIG minimum touch target */
+  }
+
+  /* ── Success sheet — readable on tablets ── */
   .success-sheet {
     padding: 16px 20px;
-    bottom: 12px;
-    max-height: 88vh;
-    overflow-y: auto;
+    max-width: 380px;
+    width: calc(100% - 32px);
   }
 
   .success-sheet-title {
-    font-size: 16px;
+    font-size: 17px;
   }
 
   .success-sheet-content {
     font-size: 13px;
   }
+
+  /* ── Learning card ── */
+  .learning-card {
+    left: 12px;
+    right: 12px;
+    bottom: 80px; /* above toggle bar */
+    padding: 12px 16px;
+  }
+
+  /* ── Footer compact ── */
+  .footer {
+    padding: 0 14px;
+  }
+
+  .footer-text {
+    font-size: 11px;
+  }
+
+  /* ── Sidebar dropzone — no need on mobile ── */
+  .sidebar-dropzone {
+    display: none;
+  }
 }
 
-/* ── Small phones (≤ 480px) ── */
-@media (max-width: 480px) {
+/* ─────────────────────────────────────────────
+   SMALL TABLETS / LARGE PHONES  (480px – 640px)
+───────────────────────────────────────────── */
+@media (max-width: 640px) {
   :root {
     --header-height: 52px;
     --footer-height: 36px;
-    --sidebar-width: 80vw;
-    --controls-width: 80vw;
+    --sidebar-width: 82vw;
+    --controls-width: 82vw;
   }
 
-  /* App body fills remaining space */
-  .app-body {
-    height: calc(100dvh - var(--header-height) - var(--footer-height));
-  }
-
-  /* Header — compact single row */
+  /* ── Header — compact single row ── */
   .header {
     padding: 0 10px;
-    gap: 8px;
+    gap: 6px;
   }
 
-  .header-logo-text {
-    font-size: 15px;
+  .header-logo-icon {
+    width: 34px;
+    height: 34px;
+  }
+
+  .header-logo-text h1 {
+    font-size: 14px;
+  }
+
+  /* Tab bar — shrink */
+  .header-tabs {
+    padding: 2px;
+  }
+
+  .header-tab {
+    padding: 7px 12px;
+    font-size: 12px;
+    gap: 4px;
+  }
+
+  .tab-icon {
+    width: 12px;
+    height: 12px;
   }
 
   .header-actions {
@@ -1879,18 +2264,169 @@ input[type="range"]:hover::-webkit-slider-thumb {
   }
 
   .btn {
-    padding: 5px 9px;
+    padding: 7px 10px;
     font-size: 11px;
     gap: 4px;
+    min-height: 38px;
   }
 
-  /* Hide less-critical header labels to save space */
+  /* Hide text labels on action buttons */
   .btn-reset span,
-  .btn-theme span {
+  .btn-theme span,
+  .btn-electricity .btn-label-text {
     display: none;
   }
 
-  /* Canvas instruction — compact pill */
+  /* ── Canvas instruction — compact ── */
+  .canvas-instruction {
+    font-size: 11px;
+    padding: 7px 12px;
+    max-width: calc(100vw - 24px);
+    top: 8px;
+  }
+
+  /* ── Zoom controls ── */
+  .canvas-zoom-controls {
+    display: none;
+  }
+
+  /* ── Toggle bar — compact ── */
+  .mobile-toggle-bar {
+    bottom: 12px;
+    padding: 5px 6px;
+    gap: 5px;
+  }
+
+  .mobile-toggle-btn {
+    padding: 9px 16px;
+    font-size: 13px;
+    gap: 4px;
+    min-height: 42px;
+  }
+
+  /* ── Drawers — near full width ── */
+  .sidebar,
+  .controls-panel {
+    width: var(--sidebar-width);
+    max-width: 100vw;
+  }
+
+  /* ── Component cards — tighter ── */
+  .component-card {
+    padding: 10px;
+  }
+
+  .component-card-body {
+    min-height: 58px;
+  }
+
+  /* ── Controls panel sliders ── */
+  .controls-panel {
+    padding: 12px 10px;
+    gap: 10px;
+  }
+
+  /* ── Success sheet — bottom sheet ── */
+  .success-sheet {
+    padding: 14px 16px;
+    border-radius: var(--radius-lg);
+  }
+
+  .success-sheet-title {
+    font-size: 15px;
+  }
+
+  .success-sheet-content {
+    font-size: 12px;
+  }
+
+  /* ── Learning card ── */
+  .learning-card {
+    left: 8px;
+    right: 8px;
+    bottom: 68px;
+    padding: 10px 14px;
+    gap: 8px;
+  }
+
+  .learning-card-icon {
+    font-size: 22px;
+  }
+
+  .learning-card-content h3 {
+    font-size: 13px;
+  }
+
+  .learning-card-content p {
+    font-size: 11.5px;
+  }
+
+  /* ── Warning banner ── */
+  .canvas-instruction.warning-banner {
+    font-size: 11px;
+    padding: 7px 12px;
+  }
+
+  /* ── Tooltip — prevent off-screen ── */
+  .tooltip {
+    max-width: calc(100vw - 24px);
+    white-space: normal;
+    min-width: 180px;
+  }
+
+  /* ── Footer — compact ── */
+  .footer {
+    font-size: 11px;
+    padding: 0 8px;
+    gap: 6px;
+  }
+
+  .footer-text {
+    font-size: 10.5px;
+  }
+}
+
+/* ─────────────────────────────────────────────
+   PHONES  (≤ 480px)
+───────────────────────────────────────────── */
+@media (max-width: 480px) {
+  :root {
+    --header-height: 50px;
+    --footer-height: 34px;
+    --sidebar-width: 88vw;
+    --controls-width: 88vw;
+  }
+
+  .app-body {
+    height: calc(100dvh - var(--header-height) - var(--footer-height));
+  }
+
+  .header {
+    padding: 0 10px;
+    gap: 6px;
+  }
+
+  .header-logo-text h1 {
+    font-size: 13px;
+  }
+
+  .header-tab {
+    padding: 6px 10px;
+    font-size: 11px;
+  }
+
+  .btn {
+    padding: 6px 9px;
+    font-size: 11px;
+    min-height: 36px;
+  }
+
+  .btn-reset span,
+  .btn-theme span,
+  .btn-electricity .btn-label-text {
+    display: none;
+  }
+
   .canvas-instruction {
     font-size: 11px;
     padding: 6px 12px;
@@ -1898,12 +2434,10 @@ input[type="range"]:hover::-webkit-slider-thumb {
     top: 8px;
   }
 
-  /* Hide zoom controls on very small screens — too cramped */
   .canvas-zoom-controls {
     display: none;
   }
 
-  /* Mobile toggle bar — keep it compact */
   .mobile-toggle-bar {
     bottom: 10px;
     padding: 4px;
@@ -1911,19 +2445,18 @@ input[type="range"]:hover::-webkit-slider-thumb {
   }
 
   .mobile-toggle-btn {
-    padding: 7px 12px;
+    padding: 8px 14px;
     font-size: 12px;
     gap: 4px;
+    min-height: 40px;
   }
 
-  /* Sidebar / controls drawers take most of screen width */
   .sidebar,
   .controls-panel {
     width: var(--sidebar-width);
     max-width: 100vw;
   }
 
-  /* Component cards — slightly tighter */
   .component-card {
     padding: 10px;
   }
@@ -1932,20 +2465,13 @@ input[type="range"]:hover::-webkit-slider-thumb {
     min-height: 56px;
   }
 
-  /* Controls panel sliders */
   .controls-panel {
     padding: 12px 10px;
     gap: 10px;
   }
 
-  /* Success sheet — full bottom sheet feel */
   .success-sheet {
-    left: 8px;
-    right: 8px;
-    bottom: 8px;
-    padding: 14px 16px;
-    max-height: 80dvh;
-    overflow-y: auto;
+    padding: 12px 14px;
     border-radius: var(--radius-lg);
   }
 
@@ -1958,34 +2484,33 @@ input[type="range"]:hover::-webkit-slider-thumb {
   }
 
   .success-confetti-container {
-    display: none; /* avoid overflow on tiny screens */
+    display: none;
   }
 
-  /* Warning banner — compact */
   .canvas-instruction.warning-banner {
     font-size: 11px;
     padding: 6px 12px;
   }
 
-  /* Tooltip — prevent going off-screen */
   .tooltip {
     max-width: calc(100vw - 24px);
     white-space: normal;
   }
 
-  /* Footer — single line compact */
   .footer {
     font-size: 11px;
     padding: 0 8px;
   }
 }
 
-/* ── Very small / older phones (≤ 360px) ── */
+/* ─────────────────────────────────────────────
+   VERY SMALL PHONES  (≤ 360px)
+───────────────────────────────────────────── */
 @media (max-width: 360px) {
   :root {
     --header-height: 48px;
-    --sidebar-width: 90vw;
-    --controls-width: 90vw;
+    --sidebar-width: 92vw;
+    --controls-width: 92vw;
   }
 
   .header {
@@ -1993,13 +2518,15 @@ input[type="range"]:hover::-webkit-slider-thumb {
   }
 
   .btn {
-    padding: 4px 8px;
+    padding: 5px 8px;
     font-size: 10px;
+    min-height: 34px;
   }
 
   .mobile-toggle-btn {
-    padding: 6px 10px;
+    padding: 7px 12px;
     font-size: 11px;
+    min-height: 38px;
   }
 
   .canvas-instruction {
@@ -2008,10 +2535,7 @@ input[type="range"]:hover::-webkit-slider-thumb {
   }
 
   .success-sheet {
-    left: 4px;
-    right: 4px;
-    bottom: 4px;
-    padding: 12px 12px;
+    padding: 12px;
   }
 }
 
@@ -2030,3 +2554,288 @@ input[type="range"]:hover::-webkit-slider-thumb {
 .delete-button-group:hover .delete-icon-svg line {
   stroke: #e11d48; /* Crimson rose red */
 }
+
+/* ===== Tablet Touch Enhancements ===== */
+/* Larger terminal dots on touch devices for easier wire connection */
+@media (pointer: coarse) {
+  .terminal-dot {
+    r: 8;
+  }
+
+  .terminal-dot:hover {
+    r: 10;
+  }
+
+  /* Larger wire click area on touch */
+  .wire-path {
+    stroke-width: 5;
+  }
+
+  /* Bigger scroll thumb */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  /* Component cards — always min 48px for touch */
+  .component-card {
+    min-height: 48px;
+  }
+
+  .wire-option {
+    min-height: 48px;
+  }
+
+  /* Ensure slider thumb is big enough for finger */
+  input[type="range"]::-webkit-slider-thumb {
+    width: 26px;
+    height: 26px;
+  }
+}
+
+/* ===== Landscape Phone Orientation Fix ===== */
+@media (max-width: 768px) and (orientation: landscape) and (max-height: 500px) {
+  :root {
+    --header-height: 40px;
+    --footer-height: 0px;
+    --sidebar-width: 200px;
+    --controls-width: 220px;
+  }
+
+  .footer {
+    display: none;
+  }
+
+  /* ── Sidebar and Controls push the canvas side-by-side in landscape instead of overlapping ── */
+  .sidebar {
+    position: static;
+    transform: none;
+    box-shadow: none;
+    display: none;
+    width: var(--sidebar-width);
+    padding: 8px;
+    gap: 6px;
+    border-right: 1px solid var(--border-color);
+  }
+
+  .sidebar.mobile-open {
+    display: flex;
+  }
+
+  .controls-panel {
+    position: static;
+    transform: none;
+    box-shadow: none;
+    display: none;
+    width: var(--controls-width);
+    padding: 8px;
+    gap: 8px;
+    border-left: 1px solid var(--border-color);
+  }
+
+  .controls-panel.mobile-open {
+    display: flex;
+  }
+
+  /* ── Compact Sidebar Cards for short screens ── */
+  .sidebar-section-title {
+    font-size: 9px;
+    margin-bottom: 2px;
+  }
+
+  .component-card {
+    padding: 6px 8px;
+    min-height: 36px;
+  }
+
+  .component-card-header {
+    margin-bottom: 2px;
+  }
+
+  .component-card-name {
+    font-size: 11px;
+  }
+
+  .component-card-body {
+    min-height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .component-card-body svg,
+  .component-preview-wrapper svg {
+    max-height: 36px;
+    width: auto;
+  }
+
+  /* Hide dropzone hint and warning text inside resistor card to save space */
+  .sidebar-dropzone,
+  .resistor-warning-tip {
+    display: none !important;
+  }
+
+  /* Compact Wire options */
+  .wire-section {
+    margin: 2px 0;
+    gap: 2px;
+  }
+
+  .wire-section-title {
+    font-size: 9px;
+    margin-bottom: 2px;
+  }
+
+  .wire-option {
+    padding: 6px 8px;
+    min-height: 32px;
+  }
+
+  .wire-option-label {
+    font-size: 11px;
+  }
+
+  .wire-swatch {
+    width: 10px;
+    height: 10px;
+  }
+
+  /* ── Compact Controls Panel for short screens ── */
+  .controls-title {
+    font-size: 11px;
+    margin-bottom: 2px;
+  }
+
+  .control-group {
+    padding: 6px 8px;
+    gap: 4px;
+  }
+
+  .control-label {
+    font-size: 11px;
+  }
+
+  .control-value {
+    font-size: 11px;
+  }
+
+  input[type="range"] {
+    height: 4px;
+    margin: 2px 0;
+  }
+
+  input[type="range"]::-webkit-slider-thumb {
+    width: 16px;
+    height: 16px;
+  }
+
+  .readouts-grid {
+    gap: 4px;
+    margin-top: 4px;
+  }
+
+  .readout-card {
+    padding: 6px;
+  }
+
+  .readout-label {
+    font-size: 9px;
+  }
+
+  .readout-value {
+    font-size: 12px;
+  }
+
+  /* ── Mobile toggle bar and zoom controls ── */
+  .mobile-toggle-bar {
+    bottom: 8px;
+    padding: 3px 5px;
+    gap: 4px;
+  }
+
+  .mobile-toggle-btn {
+    padding: 6px 14px;
+    font-size: 12px;
+    min-height: 36px;
+  }
+
+  .canvas-zoom-controls {
+    bottom: 56px;
+  }
+
+}
+
+/* ===== Orientation Warning Overlay ===== */
+.orientation-warning {
+  display: none;
+}
+
+@media (max-width: 1024px) and (orientation: portrait) {
+  .orientation-warning {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: fixed;
+    inset: 0;
+    background: var(--bg-app);
+    z-index: 10000; /* Overlay everything */
+    padding: 24px;
+    text-align: center;
+    backdrop-filter: blur(10px);
+    animation: fadeIn var(--transition-fast) ease forwards;
+  }
+
+  .orientation-warning-card {
+    background: var(--bg-surface);
+    border: 1.5px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    padding: 36px 28px;
+    max-width: 340px;
+    box-shadow: var(--shadow-lg);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    animation: scaleUp 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  }
+
+  .orientation-warning-card h2 {
+    font-family: var(--font-display);
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin: 0;
+  }
+
+  .orientation-warning-card p {
+    font-family: var(--font-body);
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--text-secondary);
+    margin: 0;
+  }
+
+  .device-rotate-icon {
+    color: var(--text-primary);
+    margin-bottom: 8px;
+  }
+
+  .rotate-phone {
+    transform-origin: 50px 50px;
+    animation: rotate-device-animation 2.4s ease-in-out infinite;
+  }
+
+  .rotate-phone-detail {
+    transform-origin: 50px 50px;
+    animation: rotate-device-animation 2.4s ease-in-out infinite;
+  }
+
+  @keyframes rotate-device-animation {
+    0%, 20% { transform: rotate(0deg); }
+    50%, 70% { transform: rotate(-90deg); }
+    100% { transform: rotate(0deg); }
+  }
+}
+
+
+

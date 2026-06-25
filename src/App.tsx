@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, CSSProperties } from 'react'
+import { useState, useCallback, useEffect, useRef, CSSProperties } from 'react'
 import {
   CircuitState,
   PlacedComponent,
@@ -17,12 +17,20 @@ import { ControlsPanel } from './components/ControlsPanel'
 import { Footer } from './components/Footer'
  
 let componentCounter = 0
+
+// ── Touch drag ref type ──────────────────────────────────────────────────
+interface TouchDragState {
+  type: ComponentType | null
+  ghostEl: HTMLDivElement | null
+}
  
 export default function App() {
   const [state, setState] = useState<CircuitState>(initialState)
   const [successDismissed, setSuccessDismissed] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [controlsOpen, setControlsOpen] = useState(false)
+  // Touch drag from sidebar to canvas
+  const touchDragRef = useRef<TouchDragState>({ type: null, ghostEl: null })
 
   // Reset dismissed state when circuit goes from complete to incomplete
   useEffect(() => {
@@ -80,21 +88,23 @@ export default function App() {
     [state, recalculate]
   )
 
-  // ── Tap to add component callback ────────────────────────────
+  // ── Tap to add component callback ────────────────────────────────
   const handleAddComponent = useCallback(
     (type: ComponentType) => {
       if (state.components.some(c => c.type === type)) return
-      // Position spaced nicely around center (x: 350, 700, 1050; y: 400)
+      // Space components evenly across the canvas width in the SVG coordinate space.
+      // Canvas is 1400×800. Place at horizontal thirds and vertical center.
+      // These positions look good after auto zoom-to-fit on any screen size.
       let x = 700
       let y = 400
       if (type === 'battery') {
-        x = 350
+        x = 300   // left third
         y = 400
       } else if (type === 'bulb') {
-        x = 700
+        x = 700   // center
         y = 400
       } else if (type === 'resistor') {
-        x = 1050
+        x = 1100  // right third
         y = 400
       }
       handleDropComponent(type, x, y)
@@ -215,6 +225,108 @@ export default function App() {
     []
   )
 
+  // ── Touch drag from sidebar ───────────────────────────────────────────
+  const handleSidebarTouchDragStart = useCallback(
+    (type: ComponentType, e: React.TouchEvent) => {
+      // Don't start drag if component already placed
+      if (state.components.some(c => c.type === type)) return
+      e.stopPropagation()
+
+      const touch = e.touches[0]
+
+      // Emoji icon for the ghost
+      const icon = type === 'battery' ? '🔋' : type === 'bulb' ? '💡' : '⚡'
+
+      // Create floating ghost that follows the finger
+      const ghost = document.createElement('div')
+      ghost.className = 'touch-drag-ghost'
+      ghost.textContent = icon
+      ghost.style.cssText = [
+        'position:fixed',
+        `left:${touch.clientX - 36}px`,
+        `top:${touch.clientY - 36}px`,
+        'width:72px', 'height:72px',
+        'background:var(--bg-surface)',
+        'border:2.5px solid var(--brand-primary)',
+        'border-radius:16px',
+        'display:flex', 'align-items:center', 'justify-content:center',
+        'font-size:32px',
+        'pointer-events:none',
+        'z-index:9999',
+        'box-shadow:0 12px 32px rgba(0,0,0,0.35)',
+        'transform:scale(1.05)',
+        'transition:border-color 120ms ease',
+      ].join(';')
+      document.body.appendChild(ghost)
+      touchDragRef.current = { type, ghostEl: ghost }
+
+      // Close sidebar drawer when drag starts so canvas is visible
+      setSidebarOpen(false)
+
+      const onMove = (me: TouchEvent) => {
+        me.preventDefault()
+        const t = me.touches[0]
+        ghost.style.left = `${t.clientX - 36}px`
+        ghost.style.top  = `${t.clientY - 36}px`
+
+        // Green border when hovering over the canvas SVG
+        const svgEl = document.querySelector('.circuit-canvas')
+        if (svgEl) {
+          const rect = svgEl.getBoundingClientRect()
+          const over = t.clientX >= rect.left && t.clientX <= rect.right &&
+                       t.clientY >= rect.top  && t.clientY <= rect.bottom
+          ghost.style.borderColor = over
+            ? 'var(--brand-green)'
+            : 'var(--brand-primary)'
+        }
+      }
+
+      const onEnd = (te: TouchEvent) => {
+        window.removeEventListener('touchmove', onMove)
+        window.removeEventListener('touchend', onEnd)
+
+        const { type: dragType, ghostEl } = touchDragRef.current
+        if (ghostEl) ghostEl.remove()
+        touchDragRef.current = { type: null, ghostEl: null }
+
+        if (!dragType) return
+        const t = te.changedTouches[0]
+
+        // Find the SVG canvas and check if we dropped over it
+        const svgEl = document.querySelector('.circuit-canvas') as SVGSVGElement | null
+        if (!svgEl) return
+
+        const rect = svgEl.getBoundingClientRect()
+        if (
+          t.clientX < rect.left || t.clientX > rect.right ||
+          t.clientY < rect.top  || t.clientY > rect.bottom
+        ) return  // dropped outside canvas — cancel
+
+        // Convert client → SVG coordinate space using the screen CTM
+        // This correctly accounts for zoom, scroll and any CSS transforms.
+        const pt = svgEl.createSVGPoint()
+        pt.x = t.clientX
+        pt.y = t.clientY
+        const ctm = svgEl.getScreenCTM()
+        if (ctm) {
+          const svgPt = pt.matrixTransform(ctm.inverse())
+          handleDropComponent(dragType, svgPt.x, svgPt.y)
+        } else {
+          // Fallback: manual calculation using zoom ratio
+          const zoom = rect.width / 1400
+          handleDropComponent(dragType,
+            (t.clientX - rect.left) / zoom,
+            (t.clientY - rect.top)  / zoom
+          )
+        }
+      }
+
+      window.addEventListener('touchmove', onMove, { passive: false })
+      window.addEventListener('touchend', onEnd, { once: true })
+    },
+    [state.components, handleDropComponent]
+  )
+
   const placedComponents = {
     battery: state.components.some(c => c.type === 'battery'),
     bulb: state.components.some(c => c.type === 'bulb'),
@@ -240,6 +352,7 @@ export default function App() {
         <Sidebar
           onDragStart={handleSidebarDragStart}
           onAddComponent={handleAddComponent}
+          onTouchDragStart={handleSidebarTouchDragStart}
           selectedWireType={state.selectedWireType}
           onSelectWireType={wt => setState(prev => ({ ...prev, selectedWireType: wt }))}
           placedComponents={placedComponents}
@@ -265,6 +378,8 @@ export default function App() {
           onAddWire={handleAddWire}
           onRemoveWire={handleRemoveWire}
           onRemoveComponent={handleRemoveComponent}
+          sidebarOpen={sidebarOpen}
+          controlsOpen={controlsOpen}
         />
  
         {/* Right Controls */}
@@ -323,22 +438,19 @@ export default function App() {
         {/* Workspace Success Sheet */}
         {state.isComplete && !successDismissed && (
           <>
-            <div className="success-overlay" onClick={() => setSuccessDismissed(true)}>
-              <div className="success-ripple" />
-            </div>
+            <div className="success-ripple" />
             <div className="success-sheet" role="alert" aria-live="assertive">
-              <div className="success-sheet-glow-bar" />
               
-              {/* Confetti sparks */}
+              {/* Confetti sparks — bursting in 360 degrees */}
               <div className="success-confetti-container">
-                <div className="confetti" style={{ '--dx': '-160px', '--dy': '140px', '--color': '#fbbf24', '--delay': '0.1s' } as CSSProperties} />
-                <div className="confetti" style={{ '--dx': '-90px', '--dy': '200px', '--color': '#f59e0b', '--delay': '0.2s' } as CSSProperties} />
-                <div className="confetti" style={{ '--dx': '-30px', '--dy': '240px', '--color': '#3b82f6', '--delay': '0.05s' } as CSSProperties} />
-                <div className="confetti" style={{ '--dx': '30px', '--dy': '220px', '--color': '#60a5fa', '--delay': '0.15s' } as CSSProperties} />
-                <div className="confetti" style={{ '--dx': '100px', '--dy': '160px', '--color': '#22c55e', '--delay': '0s' } as CSSProperties} />
-                <div className="confetti" style={{ '--dx': '-130px', '--dy': '180px', '--color': '#818cf8', '--delay': '0.25s' } as CSSProperties} />
-                <div className="confetti" style={{ '--dx': '70px', '--dy': '190px', '--color': '#a855f7', '--delay': '0.08s' } as CSSProperties} />
-                <div className="confetti" style={{ '--dx': '-50px', '--dy': '160px', '--color': '#ec4899', '--delay': '0.12s' } as CSSProperties} />
+                <div className="confetti" style={{ '--dx': '-140px', '--dy': '-120px', '--color': '#fbbf24', '--delay': '0.1s' } as CSSProperties} />
+                <div className="confetti" style={{ '--dx': '-80px', '--dy': '140px', '--color': '#f59e0b', '--delay': '0.2s' } as CSSProperties} />
+                <div className="confetti" style={{ '--dx': '-20px', '--dy': '-160px', '--color': '#3b82f6', '--delay': '0.05s' } as CSSProperties} />
+                <div className="confetti" style={{ '--dx': '40px', '--dy': '150px', '--color': '#60a5fa', '--delay': '0.15s' } as CSSProperties} />
+                <div className="confetti" style={{ '--dx': '120px', '--dy': '-100px', '--color': '#22c55e', '--delay': '0s' } as CSSProperties} />
+                <div className="confetti" style={{ '--dx': '-100px', '--dy': '-80px', '--color': '#818cf8', '--delay': '0.25s' } as CSSProperties} />
+                <div className="confetti" style={{ '--dx': '90px', '--dy': '120px', '--color': '#a855f7', '--delay': '0.08s' } as CSSProperties} />
+                <div className="confetti" style={{ '--dx': '-40px', '--dy': '110px', '--color': '#ec4899', '--delay': '0.12s' } as CSSProperties} />
               </div>
 
               <div className="success-sheet-header">
@@ -360,10 +472,10 @@ export default function App() {
                 </button>
               </div>
               <div className="success-sheet-content">
-                <p>
-                  Electricity is flowing through your circuit, heating up the bulb's filament until it glows!
+                <p style={{ margin: '0 0 8px 0', fontSize: '13px', lineHeight: '1.4' }}>
+                  Electricity is flowing through your circuit from positive (+) through the bulb to negative (-), heating up the bulb's filament until it glows!
                 </p>
-                <p className="success-sheet-detail">
+                <p className="success-sheet-detail" style={{ margin: 0, fontSize: '12px', lineHeight: '1.4', opacity: 0.9 }}>
                   Adjust the <strong>voltage</strong> (battery power) or <strong>resistance</strong> (dimmer) on the control panel to see the bulb glow brighter or dimmer!
                 </p>
               </div>
@@ -397,6 +509,45 @@ export default function App() {
 
       {/* Footer */}
       <Footer isComplete={state.isComplete} />
+
+      {/* Orientation Warning Overlay (only active in portrait mode on mobile/tab via CSS) */}
+      <div className="orientation-warning" aria-live="polite">
+        <div className="orientation-warning-card">
+          <div className="device-rotate-icon">
+            <svg viewBox="0 0 100 100" width="80" height="80" aria-hidden="true">
+              {/* Phone body */}
+              <rect
+                className="rotate-phone"
+                x="35"
+                y="20"
+                width="30"
+                height="60"
+                rx="5"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="3.5"
+              />
+              {/* Screen notch / speaker */}
+              <line className="rotate-phone-detail" x1="45" y1="24" x2="55" y2="24" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+              {/* Screen home button */}
+              <circle className="rotate-phone-detail" cx="50" cy="74" r="2" fill="currentColor" />
+              
+              {/* Rotation arrow */}
+              <path
+                className="rotate-arrow"
+                d="M 25 35 A 30 30 0 0 1 75 35"
+                fill="none"
+                stroke="var(--brand-green)"
+                strokeWidth="3"
+                strokeDasharray="4 4"
+              />
+              <polygon points="75,35 80,27 70,30" fill="var(--brand-green)" />
+            </svg>
+          </div>
+          <h2>Rotate Your Device</h2>
+          <p>Please turn your tablet or phone sideways to landscape mode for the best circuit building experience.</p>
+        </div>
+      </div>
     </div>
   )
 }

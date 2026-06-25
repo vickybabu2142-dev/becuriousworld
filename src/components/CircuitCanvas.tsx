@@ -41,6 +41,8 @@ interface CircuitCanvasProps {
   onAddWire: (fromId: string, toId: string, wireType: WireType) => void
   onRemoveWire?: (wireId: string) => void
   onRemoveComponent?: (compId: string) => void
+  sidebarOpen?: boolean
+  controlsOpen?: boolean
 }
 
 const SNAP_RADIUS = 32
@@ -187,6 +189,8 @@ export function CircuitCanvas({
   onAddWire,
   onRemoveWire,
   onRemoveComponent,
+  sidebarOpen = false,
+  controlsOpen = false,
 }: CircuitCanvasProps) {
   const svgRef = useRef<SVGSVGElement>(null)
   const [tooltip, setTooltip] = useState<TooltipData | null>(null)
@@ -288,6 +292,7 @@ export function CircuitCanvas({
   const lastTouchRef = useRef<{ id: string; time: number } | null>(null)
 
   // ── Zoom State ──────────────────────────────────────────────────────
+  // Start at 1.0; initial auto-fit runs in useEffect after layout.
   const [zoom, setZoom] = useState(1.0)
 
   // ── Zoom-to-fit utility ──────────────────────────────────────────────
@@ -303,25 +308,27 @@ export function CircuitCanvas({
     let maxY = -Infinity
 
     if (components.length === 0) {
-      // Default bounding region centered in 1400x800 canvas
-      minX = 300
-      maxX = 1100
-      minY = 200
-      maxY = 600
+      // Empty canvas: show a comfortable centered region
+      minX = 400
+      maxX = 1000
+      minY = 250
+      maxY = 550
     } else {
       components.forEach(comp => {
         const spec = COMPONENT_SPECS[comp.type]
-        const left = comp.x - spec.width / 2
-        const right = comp.x + spec.width / 2
-        const top = comp.y - spec.height / 2
-        const bottom = comp.y + spec.height / 2
+        // Also account for terminal overhang (dx/dy offsets)
+        const terminalReach = comp.type === 'resistor' ? 65 : comp.type === 'battery' ? 65 : 60
+        const left = comp.x - spec.width / 2 - terminalReach
+        const right = comp.x + spec.width / 2 + terminalReach
+        const top = comp.y - spec.height / 2 - terminalReach
+        const bottom = comp.y + spec.height / 2 + terminalReach
         if (left < minX) minX = left
         if (right > maxX) maxX = right
         if (top < minY) minY = top
         if (bottom > maxY) maxY = bottom
       })
-      // Add safe padding around components (e.g. 80px)
-      const padding = 80
+      // Tighter padding when few components — wider breathing room when fully wired
+      const padding = components.length <= 1 ? 100 : components.length <= 2 ? 80 : 60
       minX -= padding
       maxX += padding
       minY -= padding
@@ -334,12 +341,15 @@ export function CircuitCanvas({
     // Calculate optimal zoom factor to fit content within parent bounds
     const zoomX = r.width / contentWidth
     const zoomY = r.height / contentHeight
-    const newZoom = Math.min(zoomX, zoomY, 1.2) // cap at 1.2 max zoom
-    const finalZoom = Math.max(0.4, Number(newZoom.toFixed(2))) // floor at 0.4
+    // Max zoom: 1.0 for empty canvas, 0.9 for 1-2 components, 0.75 for full circuit
+    const maxZoom = components.length === 0 ? 1.0 : components.length <= 2 ? 0.9 : 0.75
+    const newZoom = Math.min(zoomX, zoomY, maxZoom)
+    // Floor: 0.25 minimum so it never disappears
+    const finalZoom = Math.max(0.25, Number(newZoom.toFixed(2)))
 
     setZoom(finalZoom)
 
-    // Programmatically scroll the parent container to center content
+    // Scroll parent to center the content region
     setTimeout(() => {
       const centerX = (minX + maxX) / 2
       const centerY = (minY + maxY) / 2
@@ -348,34 +358,41 @@ export function CircuitCanvas({
     }, 50)
   }, [components])
 
-  // Run zoom-to-fit initially and on resize only on mobile/tablet (<= 768px)
+  // Run zoom-to-fit on all screens whenever components change
   useEffect(() => {
-    const isMobile = window.innerWidth <= 768
-    if (isMobile) {
-      handleZoomToFit()
-    } else {
-      setZoom(1.0)
-    }
-    
-    // Give it a tiny delay to ensure client container layout has settled
-    const timer = setTimeout(() => {
-      if (window.innerWidth <= 768) {
-        handleZoomToFit()
-      }
-    }, 100)
+    const parent = svgRef.current?.parentElement
+    const isTabletOrMobile = window.innerWidth <= 1024
 
+    if (components.length === 0) {
+      // ── Empty canvas: reset scroll to origin ──
+      if (isTabletOrMobile) {
+        setZoom(0.65)
+      } else {
+        setZoom(1.0)
+      }
+      if (parent) {
+        parent.scrollLeft = 0
+        parent.scrollTop = 0
+      }
+      return
+    }
+
+    // ── Components present: automatically fit them in viewport ──
+    const timer = setTimeout(() => handleZoomToFit(), 120)
+    return () => clearTimeout(timer)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [components.length, sidebarOpen, controlsOpen, handleZoomToFit])
+
+  // Re-run on resize
+  useEffect(() => {
     const handleResize = () => {
-      if (window.innerWidth <= 768) {
-        handleZoomToFit()
-      }
+      handleZoomToFit()
     }
-
     window.addEventListener('resize', handleResize)
-    return () => {
-      clearTimeout(timer)
-      window.removeEventListener('resize', handleResize)
-    }
+    return () => window.removeEventListener('resize', handleResize)
   }, [handleZoomToFit])
+
+
 
   // ── SVG coordinate conversion ─────────────────────────────────────────
   const clientToSVG = useCallback((cx: number, cy: number) => {
@@ -659,54 +676,62 @@ export function CircuitCanvas({
 
   return (
     <div className="canvas-wrapper">
-      {/* ── Instruction Banner ── */}
-      {showInstructions && (
-        <div className="canvas-instruction" aria-live="polite">
-          <span style={{ color: 'var(--brand-green)' }}>⚡</span>
-          Drag or tap components from the left panel to begin
-        </div>
-      )}
-      {!showInstructions && !isComplete && (
-        <div className="canvas-instruction" aria-live="polite">
-          <span>🔗</span>
-          Drag terminals to draw wires. Drag background to pan.
-        </div>
-      )}
-      {/* ── Resistor Warning Banner ── */}
-      {showResistorWarning && (
-        <div className="canvas-instruction warning-banner" role="alert" aria-live="assertive">
-          <span>⚠️</span>
-          {resistorOnCanvas
-            ? 'Danger: Resistor bypassed! Wire it in-series to protect the bulb.'
-            : 'Overload! Add a resistor in series to protect the bulb from burning out.'}
-        </div>
-      )}
 
-      {/* ── Zoom Controls ── */}
-      <div className="canvas-zoom-controls" aria-label="Zoom controls">
-        <button className="zoom-btn zoom-fit-btn" onClick={handleZoomToFit} aria-label="Zoom to fit">Fit</button>
-        <div className="zoom-divider" />
-        <button className="zoom-btn" onClick={() => setZoom(z => Math.max(0.4, Number((z - 0.1).toFixed(2))))} aria-label="Zoom out">−</button>
-        <span className="zoom-level">{Math.round(zoom * 100)}%</span>
-        <button className="zoom-btn" onClick={() => setZoom(z => Math.min(2.0, Number((z + 0.1).toFixed(2))))} aria-label="Zoom in">+</button>
+      {/* ── Non-scrolling overlay: instructions + zoom controls ── */}
+      <div className="canvas-overlay">
+        {/* Instruction Banner */}
+        {showInstructions && (
+          <div className="canvas-instruction" aria-live="polite">
+            <span style={{ color: 'var(--brand-green)' }}>⚡</span>
+            <span className="hint-action-mouse">Drag components from the left panel to begin</span>
+            <span className="hint-action-touch">Tap or drag components from the left panel to begin</span>
+          </div>
+        )}
+        {!showInstructions && !isComplete && (
+          <div className="canvas-instruction" aria-live="polite">
+            <span>🔗</span>
+            <span className="hint-action-mouse">Drag terminals to connect wires · Drag background to pan</span>
+            <span className="hint-action-touch">Touch & drag terminals to connect wires</span>
+          </div>
+        )}
+        {/* Resistor Warning Banner */}
+        {showResistorWarning && (
+          <div className="canvas-instruction warning-banner" role="alert" aria-live="assertive">
+            <span>⚠️</span>
+            {resistorOnCanvas
+              ? 'Danger: Resistor bypassed! Wire it in-series to protect the bulb.'
+              : 'Overload! Add a resistor in series to protect the bulb from burning out.'}
+          </div>
+        )}
+
+        {/* Zoom Controls */}
+        <div className="canvas-zoom-controls" aria-label="Zoom controls">
+          <button className="zoom-btn zoom-fit-btn" onClick={handleZoomToFit} aria-label="Zoom to fit">Fit</button>
+          <div className="zoom-divider" />
+          <button className="zoom-btn" onClick={() => setZoom(z => Math.max(0.25, Number((z - 0.1).toFixed(2))))} aria-label="Zoom out">−</button>
+          <span className="zoom-level">{Math.round(zoom * 100)}%</span>
+          <button className="zoom-btn" onClick={() => setZoom(z => Math.min(2.0, Number((z + 0.1).toFixed(2))))} aria-label="Zoom in">+</button>
+        </div>
       </div>
 
+      {/* ── Scrollable canvas area ── */}
+      <div className="canvas-scroll-area">
+        {/* ── SVG Canvas ── */}
+        <svg
+          ref={svgRef}
+          className="circuit-canvas"
+          width={CANVAS_WIDTH * zoom}
+          height={CANVAS_HEIGHT * zoom}
+          viewBox={`0 0 ${CANVAS_WIDTH} ${CANVAS_HEIGHT}`}
+          style={{ cursor: draggingId ? 'grabbing' : isDrawingWire ? 'crosshair' : 'default', touchAction: 'none' }}
+          onDragOver={e => e.preventDefault()}
+          onDrop={handleDrop}
+          onMouseDown={e => e.preventDefault()}
+          onWheel={handleWheel}
+          aria-label="Circuit board canvas"
+          role="application"
+        >
 
-      {/* ── SVG Canvas ── */}
-      <svg
-        ref={svgRef}
-        className="circuit-canvas"
-        width={CANVAS_WIDTH * zoom}
-        height={CANVAS_HEIGHT * zoom}
-        viewBox={`0 0 ${CANVAS_WIDTH} ${CANVAS_HEIGHT}`}
-        style={{ cursor: draggingId ? 'grabbing' : isDrawingWire ? 'crosshair' : 'default', touchAction: 'none' }}
-        onDragOver={e => e.preventDefault()}
-        onDrop={handleDrop}
-        onMouseDown={e => e.preventDefault()}
-        onWheel={handleWheel}
-        aria-label="Circuit board canvas"
-        role="application"
-      >
         <defs>
           <filter id="wire-glow-live" x="-40%" y="-40%" width="180%" height="180%">
             <feGaussianBlur stdDeviation="3" result="blur" />
@@ -787,12 +812,11 @@ export function CircuitCanvas({
                     lastTouchRef.current = { id: wire.id, time: now }
                   }}
                   onMouseEnter={e => {
+                    if (!isComplete) return
                     setHoveredWire(wire.id)
                     const lines: { key: string; val: string; color?: string }[] = []
-                    if (isComplete) {
-                      lines.push({ key: 'Voltage', val: `${voltage} V`, color: '#f59e0b' })
-                      lines.push({ key: 'Current', val: `${current.toFixed(3)} A`, color: '#22d3ee' })
-                    }
+                    lines.push({ key: 'Voltage', val: `${voltage} V`, color: '#f59e0b' })
+                    lines.push({ key: 'Current', val: `${current.toFixed(3)} A`, color: '#22d3ee' })
                     lines.push({ key: 'Tip', val: 'Double-click to delete' })
                     showTooltip({ x: e.clientX, y: e.clientY, wireType: wire.wireType, lines })
                   }}
@@ -1107,6 +1131,7 @@ export function CircuitCanvas({
           </div>
         )
       })()}
-    </div>
+      </div> {/* end canvas-scroll-area */}
+    </div>  /* end canvas-wrapper */
   )
 }
